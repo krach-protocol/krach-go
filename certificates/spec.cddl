@@ -1,0 +1,19 @@
+; An array specifying a certificate, the curve needs to be specified,
+; Validity should be UTC.
+; Signature is based on ed25519
+
+certificate = [
+  serial_number : uint,
+  issuer : tstr,
+  validity : [notBefore: int, notAfter: int],
+  subject : tstr,
+  public_key : bstr,
+  extensions : [* extension],
+  signature : bstr,
+]
+
+extension = [
+  oid : uint,
+  critical : bool,
+  value : bstr,
+]
