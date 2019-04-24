@@ -1,6 +1,8 @@
 package certificates
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"time"
 
@@ -26,10 +28,42 @@ type Issuer interface {
 
 type CertPool map[string]*Certificate
 
-func (c *CertPool) Validate(cert *Certificate) error {
-	if cert.Validity != nil {
-		// Certificate has Validity, validate it
+func NewCertPool(rootCerts ...*Certificate) *CertPool {
+	p := make(CertPool)
+	for _, c := range rootCerts {
+		p[c.Subject] = c
+	}
+	return &p
+}
 
+func (c *CertPool) Validate(cert *Certificate) error {
+	if !cert.Validity.NotBefore.IsZero() {
+		// Validate notBefore
+		notBefore := cert.Validity.NotBefore.StdTime()
+		if time.Now().Before(notBefore) {
+			return errors.New("certificate can't be valid yet")
+		}
+	}
+
+	if !cert.Validity.NotAfter.IsZero() {
+		notAfter := cert.Validity.NotAfter.StdTime()
+		if time.Now().After(notAfter) {
+			return errors.New("certificate is not valid anymore")
+		}
+	}
+
+	issuerCert, exists := (*c)[cert.Issuer]
+	if !exists {
+		return errors.New("certificate is not signed by a known issuer")
+	}
+	sig := cert.Signature
+	cert.Signature = nil
+	certBytes, err := cert.Bytes()
+	if err != nil {
+		return errors.New("Failed to serialize certificate for validation")
+	}
+	if !ed25519.Verify(issuerCert.PublicKey, certBytes, sig) {
+		return errors.New("Signature validation failed")
 	}
 	return nil
 }
@@ -37,16 +71,25 @@ func (c *CertPool) Validate(cert *Certificate) error {
 type Certificate struct {
 	_struct interface{} `codec:"-,toarray"`
 
-	SerialNumber uint64            `codec:"serial_number"`
-	Issuer       string            `codec:"issuer"`
-	Validity     *Validity         `codec:"validity,omitempty"`
-	Subject      string            `codec:"subject"`
-	PublicKey    ed25519.PublicKey `codec:"public_key"`
-	Extensions   []Extension       `codec:"extensions"`
-	Signature    []byte            `codec:"signature"`
+	SerialNumber uint64 `codec:"serial_number"`
+	Issuer       string `codec:"issuer"`
+	// NotBefore and NotAfter might be 0 to indicate to be ignored during validation
+	Validity   *Validity         `codec:"validity,omitempty"`
+	Subject    string            `codec:"subject"`
+	PublicKey  ed25519.PublicKey `codec:"public_key"`
+	Extensions []Extension       `codec:"extensions"`
+	Signature  []byte            `codec:"signature"`
+}
+
+func (c *Certificate) Bytes() ([]byte, error) {
+	buf := &bytes.Buffer{}
+	err := Serialize(c, buf)
+	return buf.Bytes(), err
 }
 
 type Time int64
+
+var ZeroTime = Time(0)
 
 func NewTime(now time.Time) *Time {
 	unix := now.Unix()
@@ -54,15 +97,14 @@ func NewTime(now time.Time) *Time {
 	return &t
 }
 
-/*func (t *Time) MarshalBinary() (data []byte, err error) {
-
+func (t *Time) StdTime() time.Time {
+	return time.Unix(int64(*t), 0)
 }
 
-func (t *Time) UnmarshalBinary(data []byte) error {
+func (t *Time) IsZero() bool {
+	return int64(*t) == 0
+}
 
-}*/
-
-// TODO serialize this into time.Time
 type Validity struct {
 	_struct interface{} `codec:"-,toarray"`
 

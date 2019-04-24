@@ -2,6 +2,7 @@ package certificates
 
 import (
 	"bytes"
+	"crypto/rand"
 	"os"
 	"os/exec"
 	"testing"
@@ -69,4 +70,39 @@ func TestCertificateParsing(t *testing.T) {
 
 	assert.EqualValues(t, cert, cert2)
 	assert.EqualValues(t, notAfter.Unix(), int64(*cert2.Validity.NotAfter))
+}
+
+func TestCertPool(t *testing.T) {
+	// Create a self signed certificate
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	rootCert := &Certificate{
+		Extensions:   []Extension{},
+		Issuer:       "root",
+		PublicKey:    rootPub,
+		SerialNumber: 1,
+		Subject:      "root",
+		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+	}
+	rootCertBytes, err := rootCert.Bytes()
+	require.NoError(t, err)
+	rootCert.Signature = ed25519.Sign(rootPriv, rootCertBytes)
+
+	// Create a new 'normal' certificate
+
+	cert := &Certificate{
+		Extensions:   []Extension{},
+		Issuer:       "root",
+		PublicKey:    rootPub,
+		SerialNumber: 1,
+		Subject:      "device",
+		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+	}
+	certBytes, err := cert.Bytes()
+	cert.Signature = ed25519.Sign(rootPriv, certBytes)
+
+	pool := NewCertPool(rootCert)
+
+	err = pool.Validate(cert)
+	assert.NoError(t, err)
 }
