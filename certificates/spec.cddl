@@ -1,5 +1,5 @@
-; An array specifying a certificate, the curve needs to be specified,
-; Validity should be UTC.
+; An array specifying a certificate.
+; Validity should be UTC in seconds since epoch.
 ; Signature is based on ed25519
 
 certificate = [
