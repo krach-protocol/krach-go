@@ -90,10 +90,12 @@ func TestCertPool(t *testing.T) {
 
 	// Create a new 'normal' certificate
 
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
 	cert := &Certificate{
 		Extensions:   []Extension{},
 		Issuer:       "root",
-		PublicKey:    rootPub,
+		PublicKey:    pub,
 		SerialNumber: 1,
 		Subject:      "device",
 		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
