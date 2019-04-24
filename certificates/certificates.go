@@ -1,3 +1,11 @@
+/*
+This package implements CBOR based certificates loosely based on the CBOR profile for X.509 certificates
+(https://tools.ietf.org/id/draft-raza-ace-cbor-certificates-00.html)
+
+Current ToDos:
+- Limit key usage, not everyone should be able to sign keys
+- probably more
+*/
 package certificates
 
 import (
@@ -21,13 +29,10 @@ func init() {
 	ch.TimeNotBuiltin = false
 }
 
-type Issuer interface {
-	ID() string
-	Sign(cert *Certificate) (*Certificate, error)
-}
-
+// CertPool is a pool of root certificates which can be used to validate a certificate
 type CertPool map[string]*Certificate
 
+// NewCertPool creates a new CertPool from a group of root certificates
 func NewCertPool(rootCerts ...*Certificate) *CertPool {
 	p := make(CertPool)
 	for _, c := range rootCerts {
@@ -36,6 +41,8 @@ func NewCertPool(rootCerts ...*Certificate) *CertPool {
 	return &p
 }
 
+// Validate takes a certificate, checks if the issuer is known to the CertPool, validates
+// the issuer certificate and then validates the given certificate against the issuer certificate
 func (c *CertPool) Validate(cert *Certificate) error {
 
 	issuerCert, exists := (*c)[cert.Issuer]
@@ -78,6 +85,7 @@ func validateCertificate(cert *Certificate, pubKey ed25519.PublicKey) error {
 	return nil
 }
 
+// Certificate represents CBOR based certificates based on the provide spec.cddl
 type Certificate struct {
 	_struct interface{} `codec:"-,toarray"`
 
@@ -91,30 +99,38 @@ type Certificate struct {
 	Signature  []byte            `codec:"signature"`
 }
 
+// Bytes returns the CBOR encoded form of the certificate as byte slice
 func (c *Certificate) Bytes() ([]byte, error) {
 	buf := &bytes.Buffer{}
 	err := Serialize(c, buf)
 	return buf.Bytes(), err
 }
 
+// Time is a type to represent int encoded time stamps based on the elapsed seconds since epoch
 type Time int64
 
+// ZeroTime represent a zero timestamp which might indicate that this timestamp can be ignored
 var ZeroTime = Time(0)
 
+// NewTime creates a new Time from a given time.Time with second precision
 func NewTime(now time.Time) *Time {
 	unix := now.Unix()
 	t := Time(unix)
 	return &t
 }
 
+// StdTime returns a time.Time with second precision
 func (t *Time) StdTime() time.Time {
 	return time.Unix(int64(*t), 0)
 }
 
+// IsZero is true if this is a zero time
 func (t *Time) IsZero() bool {
 	return int64(*t) == 0
 }
 
+// Validity represents the time constrained validity of a Certificate.
+// NotBefore might be ZeroTime to ignore this constraint, same goes for NotAfter
 type Validity struct {
 	_struct interface{} `codec:"-,toarray"`
 
@@ -122,6 +138,7 @@ type Validity struct {
 	NotAfter  *Time `codec:"notAfter"`
 }
 
+// Extension represents a Certificate Extension as specified for X.509 certificates
 type Extension struct {
 	_struct interface{} `codec:"-,toarray"`
 
@@ -130,16 +147,7 @@ type Extension struct {
 	Value    []byte `codec:"value"`
 }
 
-func Issue(template *Certificate, issuer Issuer) (*Certificate, error) {
-
-	cert, err := issuer.Sign(template)
-	if err != nil {
-		return nil, err
-	}
-
-	return cert, nil
-}
-
+// Parse parses a Certificate from an io.Reader
 func Parse(r io.Reader) (cert *Certificate, err error) {
 	dec := codec.NewDecoder(r, ch)
 
@@ -151,6 +159,7 @@ func Parse(r io.Reader) (cert *Certificate, err error) {
 	return cert, err
 }
 
+// Serialize serializes a Certificate to an io.Writer
 func Serialize(cert *Certificate, w io.Writer) (err error) {
 	enc := codec.NewEncoder(w, ch)
 

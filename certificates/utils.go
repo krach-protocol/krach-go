@@ -7,6 +7,7 @@ import (
 	"golang.org/x/crypto/ed25519"
 )
 
+// SignCertificates takes a certificate, removes the signature and creates a new signature with the given key
 func SignCertificate(cert *Certificate, priv ed25519.PrivateKey) (*Certificate, error) {
 	cert.Signature = nil
 	certBytes, err := cert.Bytes()
