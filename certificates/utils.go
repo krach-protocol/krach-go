@@ -7,6 +7,16 @@ import (
 	"golang.org/x/crypto/ed25519"
 )
 
+func SignCertificate(cert *Certificate, priv ed25519.PrivateKey) (*Certificate, error) {
+	cert.Signature = nil
+	certBytes, err := cert.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	cert.Signature = ed25519.Sign(priv, certBytes)
+	return cert, nil
+}
+
 // SelfSignedCertificate is a simple function to generate a self signed certificate
 func SelfSignedCertificate(subject string,
 	notBefore, notAfter time.Time,
@@ -33,11 +43,8 @@ func SelfSignedCertificate(subject string,
 		Subject:      subject,
 		PublicKey:    pub,
 		Extensions:   extensions,
+		Signature:    nil,
 	}
-	certBytes, err := cert.Bytes()
-	if err != nil {
-		return nil, ed25519.PrivateKey{}, err
-	}
-	cert.Signature = ed25519.Sign(priv, certBytes)
-	return cert, priv, nil
+	cert, err = SignCertificate(cert, priv)
+	return cert, priv, err
 }

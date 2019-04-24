@@ -72,15 +72,19 @@ func TestCertificateParsing(t *testing.T) {
 	assert.EqualValues(t, notAfter.Unix(), int64(*cert2.Validity.NotAfter))
 }
 
+func TestCreateSelfSignedCert(t *testing.T) {
+	cert, _, err := SelfSignedCertificate("root", time.Time{}, time.Time{}, []Extension{})
+	require.NoError(t, err)
+	err = validateCertificate(cert, cert.PublicKey)
+	assert.NoError(t, err)
+}
+
 func TestCertPool(t *testing.T) {
 	// Create a self signed certificate
 	rootCert, rootPriv, err := SelfSignedCertificate("root", time.Time{}, time.Time{}, []Extension{})
-	rootCertBytes, err := rootCert.Bytes()
 	require.NoError(t, err)
-	rootCert.Signature = ed25519.Sign(rootPriv, rootCertBytes)
 
 	// Create a new 'normal' certificate
-
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	cert := &Certificate{
@@ -91,8 +95,8 @@ func TestCertPool(t *testing.T) {
 		Subject:      "device",
 		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
 	}
-	certBytes, err := cert.Bytes()
-	cert.Signature = ed25519.Sign(rootPriv, certBytes)
+	cert, err = SignCertificate(cert, rootPriv)
+	require.NoError(t, err)
 
 	pool := NewCertPool(rootCert)
 

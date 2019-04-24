@@ -37,8 +37,21 @@ func NewCertPool(rootCerts ...*Certificate) *CertPool {
 }
 
 func (c *CertPool) Validate(cert *Certificate) error {
+
+	issuerCert, exists := (*c)[cert.Issuer]
+	if !exists {
+		return errors.New("certificate is not signed by a known issuer")
+	}
+	// Validate the issuer cert, might be invalid too (expired etc.)
+	if err := validateCertificate(issuerCert, issuerCert.PublicKey); err != nil {
+		return errors.New("Error validating issuing root certificate: " + err.Error())
+	}
+
+	return validateCertificate(cert, issuerCert.PublicKey)
+}
+
+func validateCertificate(cert *Certificate, pubKey ed25519.PublicKey) error {
 	if !cert.Validity.NotBefore.IsZero() {
-		// Validate notBefore
 		notBefore := cert.Validity.NotBefore.StdTime()
 		if time.Now().Before(notBefore) {
 			return errors.New("certificate can't be valid yet")
@@ -51,18 +64,15 @@ func (c *CertPool) Validate(cert *Certificate) error {
 			return errors.New("certificate is not valid anymore")
 		}
 	}
-
-	issuerCert, exists := (*c)[cert.Issuer]
-	if !exists {
-		return errors.New("certificate is not signed by a known issuer")
-	}
 	sig := cert.Signature
+
 	cert.Signature = nil
 	certBytes, err := cert.Bytes()
+
 	if err != nil {
 		return errors.New("Failed to serialize certificate for validation")
 	}
-	if !ed25519.Verify(issuerCert.PublicKey, certBytes, sig) {
+	if !ed25519.Verify(pubKey, certBytes, sig) {
 		return errors.New("Signature validation failed")
 	}
 	return nil
