@@ -74,16 +74,7 @@ func TestCertificateParsing(t *testing.T) {
 
 func TestCertPool(t *testing.T) {
 	// Create a self signed certificate
-	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	rootCert := &Certificate{
-		Extensions:   []Extension{},
-		Issuer:       "root",
-		PublicKey:    rootPub,
-		SerialNumber: 1,
-		Subject:      "root",
-		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
-	}
+	rootCert, rootPriv, err := SelfSignedCertificate("root", time.Time{}, time.Time{}, []Extension{})
 	rootCertBytes, err := rootCert.Bytes()
 	require.NoError(t, err)
 	rootCert.Signature = ed25519.Sign(rootPriv, rootCertBytes)
