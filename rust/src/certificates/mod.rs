@@ -128,6 +128,7 @@ mod tests {
     );
 
     let res = to_vec(&cert);
-    assert!(!res.is_err());
+    assert!(res.is_ok());
+    assert_eq!(EXPECTED_CERT_BYTES, &res.unwrap()[..]);
   }
 }
