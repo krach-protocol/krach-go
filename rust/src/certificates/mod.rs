@@ -73,6 +73,7 @@ impl Serialize for Extension {
 
     seq.serialize_element(&self.oid)?;
     seq.serialize_element(&self.critical)?;
+    // TODO I would like to avoid this copy operation
     let value_val = serde_cbor::value::Value::Bytes(self.value.clone());
     seq.serialize_element(&value_val)?;
 
@@ -114,10 +115,11 @@ impl Serialize for Certificate {
     seq.serialize_element(&self.validity)?;
     seq.serialize_element(&self.subject)?;
 
+    // TODO I would like to avoid this copy operation
     let pub_key_val = serde_cbor::value::Value::Bytes(self.public_key.clone());
     seq.serialize_element(&pub_key_val)?;
     seq.serialize_element(&self.extensions)?;
-
+    // TODO I would like to avoid this copy operation
     let signature_val = serde_cbor::value::Value::Bytes(self.signature.clone());
     seq.serialize_element(&signature_val)?;
 
