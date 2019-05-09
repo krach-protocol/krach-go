@@ -1,7 +1,6 @@
 extern crate serde;
 extern crate serde_cbor;
 
-use serde::ser::Serialize as SerSerialize;
 use serde::ser::{SerializeSeq, Serializer};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::vec::Vec;
