@@ -3,6 +3,7 @@ package certificates
 import (
 	"bytes"
 	"crypto/rand"
+	"fmt"
 	"os"
 	"os/exec"
 	"testing"
@@ -102,4 +103,123 @@ func TestCertPool(t *testing.T) {
 
 	err = pool.Validate(cert)
 	assert.NoError(t, err)
+}
+
+func TestCertPoolValidateUntrustedBundle(t *testing.T) {
+	rootCert, _, err := SelfSignedCertificate("testroot", time.Time{}, time.Time{}, []Extension{})
+	require.NoError(t, err)
+
+	var certChain []*Certificate
+	var intermediateStartCert *Certificate
+	var lastCert *Certificate
+	var lastPrivKey ed25519.PrivateKey
+	for i := 0; i < 3; i++ {
+		if lastCert == nil {
+			intermediateStartCert, lastPrivKey, err = SelfSignedCertificate("intermediate 0", time.Time{}, time.Time{}, []Extension{})
+			require.NoError(t, err)
+			certChain = append(certChain, intermediateStartCert)
+			lastCert = intermediateStartCert
+		} else {
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			cert := &Certificate{
+				Extensions:   []Extension{},
+				Issuer:       lastCert.Subject,
+				PublicKey:    pub,
+				SerialNumber: 1,
+				Subject:      fmt.Sprintf("intermediate %d", i),
+				Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+			}
+			cert, err = SignCertificate(cert, lastPrivKey)
+			require.NoError(t, err)
+			certChain = append(certChain, cert)
+			lastCert = cert
+			lastPrivKey = priv
+		}
+	}
+
+	clientPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	clientCert := &Certificate{
+		Extensions:   []Extension{},
+		Issuer:       lastCert.Subject,
+		PublicKey:    clientPub,
+		SerialNumber: 1,
+		Subject:      "client",
+		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+	}
+	clientCert, err = SignCertificate(clientCert, lastPrivKey)
+	require.NoError(t, err)
+	certChain = append(certChain, clientCert)
+
+	pool := NewCertPool(rootCert)
+
+	_, err = pool.ValidateBundle(certChain)
+	require.Error(t, err)
+}
+
+func TestCertPoolValidateTrustedBundle(t *testing.T) {
+	rootCert, rootPriv, err := SelfSignedCertificate("testroot", time.Time{}, time.Time{}, []Extension{})
+	require.NoError(t, err)
+
+	var certChain []*Certificate
+	var intermediateStartCert *Certificate
+	var lastCert *Certificate
+	var lastPrivKey ed25519.PrivateKey
+	for i := 0; i < 3; i++ {
+		if lastCert == nil {
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			intermediateStartCert = &Certificate{
+				Subject:      "intermediate 0",
+				Extensions:   []Extension{},
+				PublicKey:    pub,
+				SerialNumber: 1,
+				Issuer:       rootCert.Subject,
+				Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+			}
+			intermediateStartCert, err = SignCertificate(intermediateStartCert, rootPriv)
+			require.NoError(t, err)
+			certChain = append(certChain, intermediateStartCert)
+			lastCert = intermediateStartCert
+			lastPrivKey = priv
+		} else {
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			cert := &Certificate{
+				Extensions:   []Extension{},
+				Issuer:       lastCert.Subject,
+				PublicKey:    pub,
+				SerialNumber: 1,
+				Subject:      fmt.Sprintf("intermediate %d", i),
+				Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+			}
+			cert, err = SignCertificate(cert, lastPrivKey)
+			require.NoError(t, err)
+			certChain = append(certChain, cert)
+			lastCert = cert
+			lastPrivKey = priv
+		}
+	}
+
+	clientPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	clientCert := &Certificate{
+		Extensions:   []Extension{},
+		Issuer:       lastCert.Subject,
+		PublicKey:    clientPub,
+		SerialNumber: 1,
+		Subject:      "client",
+		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+	}
+	clientCert, err = SignCertificate(clientCert, lastPrivKey)
+	require.NoError(t, err)
+	certChain = append(certChain, clientCert)
+
+	pool := NewCertPool(rootCert)
+
+	c, err := pool.ValidateBundle(certChain)
+	assert.NoError(t, err)
+	assert.EqualValues(t, clientCert, c)
+
 }

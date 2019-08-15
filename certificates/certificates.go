@@ -57,6 +57,62 @@ func (c *CertPool) Validate(cert *Certificate) error {
 	return validateCertificate(cert, issuerCert.PublicKey)
 }
 
+func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, error) {
+	issuerMap := make(map[string]*Certificate)
+	subjectMap := make(map[string]*Certificate)
+	for _, cert := range certBundle {
+		issuerMap[cert.Issuer] = cert
+		subjectMap[cert.Subject] = cert
+	}
+
+	var clientCert *Certificate
+	var intermediateCerts []*Certificate
+	for _, cert := range certBundle {
+		if _, found := issuerMap[cert.Subject]; found {
+			intermediateCerts = append(intermediateCerts, cert)
+			continue
+		} else {
+			clientCert = cert
+		}
+	}
+
+	if clientCert == nil {
+		return nil, errors.New("Can't find non-intermediate certificate in certificate chain")
+	}
+
+	if clientIssuer, found := subjectMap[clientCert.Issuer]; found {
+		if err := validateCertificate(clientCert, clientIssuer.PublicKey); err != nil {
+			return nil, err
+		}
+	} else {
+		// Might be that the certificate is already trusted through the current pool
+		if err := c.Validate(clientCert); err == nil {
+			return clientCert, nil
+		}
+		return nil, errors.New("No issuer for the client certificate was found in the intermediate certificates")
+	}
+
+	var chainTopCert *Certificate
+	// Validate the chain of intermediate certs
+	for _, cert := range intermediateCerts {
+		if issuerCert, exists := subjectMap[cert.Issuer]; exists {
+			if err := validateCertificate(cert, issuerCert.PublicKey); err != nil {
+				return nil, errors.New("Validation error in chain of intermediate certificates")
+			}
+		} else {
+			chainTopCert = cert
+		}
+	}
+
+	if chainTopCert == nil {
+		return nil, errors.New("The intermediate chain is self signed and not signed by one of the root certs of this pool")
+	}
+	if err := c.Validate(chainTopCert); err != nil {
+		return nil, err
+	}
+	return clientCert, nil
+}
+
 func validateCertificate(cert *Certificate, pubKey ed25519.PublicKey) error {
 	if !cert.Validity.NotBefore.IsZero() {
 		notBefore := cert.Validity.NotBefore.StdTime()
