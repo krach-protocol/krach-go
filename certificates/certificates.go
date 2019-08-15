@@ -58,6 +58,7 @@ func (c *CertPool) Validate(cert *Certificate) error {
 }
 
 func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, error) {
+	// FIXME when we have defined extensions, validate capabilities of certificates through extensions
 	issuerMap := make(map[string]*Certificate)
 	subjectMap := make(map[string]*Certificate)
 	for _, cert := range certBundle {
