@@ -105,6 +105,31 @@ func TestCertPool(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestCertPoolValidateSingleCert(t *testing.T) {
+	rootCert, rootKey, err := SelfSignedCertificate("testroot", time.Time{}, time.Time{}, []Extension{})
+	require.NoError(t, err)
+
+	var certChain []*Certificate
+	clientPub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	clientCert := &Certificate{
+		Extensions:   []Extension{},
+		Issuer:       rootCert.Subject,
+		PublicKey:    clientPub,
+		SerialNumber: 1,
+		Subject:      "client",
+		Validity:     &Validity{NotBefore: &ZeroTime, NotAfter: &ZeroTime},
+	}
+	clientCert, err = SignCertificate(clientCert, rootKey)
+	require.NoError(t, err)
+	certChain = append(certChain, clientCert)
+
+	certPool := NewCertPool(rootCert)
+	c, err := certPool.ValidateBundle(certChain)
+	assert.NoError(t, err)
+	assert.EqualValues(t, clientCert, c)
+}
+
 func TestCertPoolValidateUntrustedBundle(t *testing.T) {
 	rootCert, _, err := SelfSignedCertificate("testroot", time.Time{}, time.Time{}, []Extension{})
 	require.NoError(t, err)

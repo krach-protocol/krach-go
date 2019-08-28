@@ -183,7 +183,7 @@ func (t *Time) StdTime() time.Time {
 
 // IsZero is true if this is a zero time
 func (t *Time) IsZero() bool {
-	return int64(*t) == 0
+	return t == nil || int64(*t) == 0
 }
 
 // Validity represents the time constrained validity of a Certificate.
