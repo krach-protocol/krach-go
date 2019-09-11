@@ -6,8 +6,6 @@ import (
 	"sync"
 )
 
-var timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
-
 type mockConnection struct {
 	// string is the string represention of net.UDPAddr as net.UDPAddr can't be used as map key
 	hosts  map[string]chan *mockPacket

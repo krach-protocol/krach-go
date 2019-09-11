@@ -41,19 +41,37 @@ func newResponder(netConn packetNet, c *ResponderConfig) *Responder {
 		errorChan:           make(chan error, 10),
 		certPool:            c.CertPool,
 	}
-	go readLoop(r.logger, r.readLoopCloseChan, r.netConn, r.handleHandshakeInit, nil)
+	go readLoop(r.logger, r.readLoopCloseChan, r.netConn, r.handleHandshakeInit, nil, r.handleTransportPacket)
 	return r
 }
 
+func (r *Responder) handleTransportPacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
+	senderIndex := extractSenderIndex(pktBuf)
+	receiverIndex := extractReceiverIndex(pktBuf)
+	logger := r.logger.WithFields(map[string]interface{}{
+		"remoteAddr":    remoteAddr,
+		"senderIndex":   senderIndex,
+		"receiverIndex": receiverIndex,
+	})
+
+	session := r.table.LookupPeer(receiverIndex)
+	if session == nil {
+		logger.Error("Can't find session with this receiverIndex")
+		return
+	}
+	session.receivePacket(pktBuf, remoteAddr)
+}
+
 func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) {
-	logger := r.logger.WithField("remoteAddr", remoteAddr)
+	logger := r.logger.WithField("remoteAddr", remoteAddr.String())
 	pktMsg := pktBuf[PayloadHandshakeInitOffset:]
 	hsState, err := noise.NewHandshakeState(*r.noiseConfig)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handshake state for peer")
 		return
 	}
-	peer := newSession(r.netConn.WriteTo)
+	peer := newSession(r.logger, r.netConn.WriteTo)
+	peer.isInitiator = false
 	peer.RemoteAddr = remoteAddr
 	peer.handshakeState = hsState
 
@@ -79,31 +97,35 @@ func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) 
 			"authenticatedSenderIndex":   senderIndex,
 			"unauthenticatedSenderIndex": unauthedSenderIndex,
 		}).Error("Sender index couldn't be authenticated")
+		return
 	}
+	logger.WithField("senderIndex", senderIndex)
 
 	peer.connectionConfig = config
 	peer.SenderIndex = senderIndex
 
 	peer.ReceiverIndex = r.generatePeerIndex()
+	logger.WithField("receiverIndex", peer.ReceiverIndex)
 	responsePayload, err := createHandshakeResponsePayload(senderIndex, peer.ReceiverIndex)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create handshake response payload")
 	}
 	var rspMsg []byte
-	rspMsg, enc, dec, err := peer.handshakeState.WriteMessage(rspMsg, responsePayload)
+	rspMsg, _, cs2, err := peer.handshakeState.WriteMessage(rspMsg, responsePayload)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create response to handshake")
 		return
 	}
-	responsePkt := createHandshakeResponse(senderIndex, peer.ReceiverIndex, rspMsg)
+	logger.Debug("Received handshake init")
+	responsePkt := createHandshakeResponse(peer.SenderIndex, peer.ReceiverIndex, rspMsg)
 	_, err = r.netConn.WriteTo(responsePkt, peer.RemoteAddr)
 	if err != nil {
 		logger.WithError(err).Error("Failed to send handshake response to peer")
 		return
 	}
 
-	peer.encryptionCipherstate = enc
-	peer.decryptionCipheState = dec
+	peer.encryptionCipherstate = cs2
+	peer.decryptionCipherState = cs2
 
 	peer.lastPktReceived = time.Now()
 	r.table.AddPeer(peer.ReceiverIndex, peer)

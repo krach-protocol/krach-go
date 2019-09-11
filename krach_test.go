@@ -30,7 +30,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestHandshake(t *testing.T) {
+func TestHandshakeAndCipherstate(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
 	logg := logrus.WithField("test", true)
 	logg.Level = logrus.DebugLevel
 	logger := LogrusLogger(logg)
@@ -82,8 +83,23 @@ func TestHandshake(t *testing.T) {
 	serverSess, err := server.Accept()
 	require.NoError(t, err)
 
-	assert.NotNil(t, clientSess)
-	assert.NotNil(t, serverSess)
+	require.NotNil(t, clientSess)
+	require.NotNil(t, serverSess)
+
+	testMessage := []byte(`Der Hegemoniekonsul saß auf dem Balkon seines Ebenholzraumschiffs 
+		und spielte Rachmaninoffs Prelude in cis-Moll auf einem uralten, 
+		aber gut erhaltenen Steinway, während sich große grüne Saurierwesen unten 
+		in den Sümpfen drängten und heulten`)
+	n1, err := clientSess.Write(testMessage)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(testMessage), n1)
+
+	readBuf := make([]byte, 4096)
+	n2, err := serverSess.Read(readBuf)
+	require.NoError(t, err)
+	assert.Equal(t, n1, n2)
+	assert.EqualValues(t, testMessage, readBuf[:n2])
+
 }
 
 func TestUDPReadDeadline(t *testing.T) {

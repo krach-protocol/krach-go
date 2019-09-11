@@ -39,3 +39,13 @@ keys, associated data etc manually to the handshake algorithm.
     * cbor array with
         * SenderIndex
         * ReceiverIndex
+(TODO: Replace IK handshake pattern with XX handshake pattern, which requires one more roundtrip)
+(TODO: We need the packet size as authenticated value)
+
+### TransportPacket
+
+* 1 byte Version
+* 1 byte PacketType
+* 4 byte SenderIndex (need to see if this is necessary after handshake)
+* 4 byte ReceiverIndex 
+* Noise protocol encrypted data

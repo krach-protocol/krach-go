@@ -136,13 +136,13 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 	logger.Debug("Received handshake response")
 	pktMsg := pktBuf[PayloadHandshakeResponseOffset:]
 	var payload []byte
-	payload, encCs, decCs, err := i.peer.handshakeState.ReadMessage(payload, pktMsg)
+	payload, _, cs2, err := i.peer.handshakeState.ReadMessage(payload, pktMsg)
 	if err != nil {
 		logger.WithError(err).Error("Failed to read noise message and complete handshake")
 		return
 	}
-	i.peer.encryptionCipherstate = encCs
-	i.peer.decryptionCipheState = decCs
+	i.peer.encryptionCipherstate = cs2
+	i.peer.decryptionCipherState = cs2
 	i.peer.lastPktReceived = time.Now()
 	// Handshake should be finished on client side
 	response := &handshakeResponsePayload{}

@@ -74,6 +74,8 @@ var (
 	PayloadHandshakeResponseOffset = 10
 
 	PayloadTransportOffset = 10
+
+	authTagLength = 16
 )
 
 var (
@@ -120,7 +122,7 @@ type Session struct {
 
 	connectionConfig      *PeerConnectionConfig
 	encryptionCipherstate *noise.CipherState
-	decryptionCipheState  *noise.CipherState
+	decryptionCipherState *noise.CipherState
 	handshakeState        *noise.HandshakeState
 
 	send func([]byte, *net.UDPAddr) (int, error)
@@ -159,10 +161,12 @@ func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
 	logger.Debug("Received packet in session")
 	var err error
 	pktPayload := pktBuf[PayloadTransportOffset:]
+	header := pktBuf[:PayloadTransportOffset]
+
 	var decryptedPayload []byte
-	decryptedPayload, err = s.decryptionCipheState.Decrypt(
+	decryptedPayload, err = s.decryptionCipherState.Decrypt(
 		decryptedPayload,
-		pktBuf[:PayloadTransportOffset], // Use the whole header as additional authenticated data
+		header, // Use the whole header as additional authenticated data
 		pktPayload)
 	if err != nil {
 		logger.WithError(err).Info("Received invalid packet from known peer")
@@ -198,12 +202,15 @@ func (s *Session) Write(b []byte) (n int, err error) {
 			return 0, err
 		}
 	default:
+		// Do nothing, just check if we are having an error
 	}
 	header := createTransportHeader(s.SenderIndex, s.ReceiverIndex)
 	var encryptedPayload []byte
 	encryptedPayload = s.encryptionCipherstate.Encrypt(encryptedPayload, header, b)
 	packet := append(header, encryptedPayload...)
-	return s.send(packet, s.RemoteAddr)
+	n, err = s.send(packet, s.RemoteAddr)
+	n = n - (authTagLength + len(header))
+	return
 }
 
 func (s *Session) Read(b []byte) (n int, err error) {
