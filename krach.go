@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/flynn/noise"
+	"github.com/pkg/errors"
 	"github.com/ugorji/go/codec"
 	"github.com/xtaci/smux"
 
@@ -51,6 +52,7 @@ func (p PacketType) Byte() byte {
 const (
 	PacketTypeHandshakeInit     PacketType = 1
 	PacketTypeHandshakeResponse PacketType = 2
+	PacketTypeTransport         PacketType = 0x10
 )
 
 type PeerIndex uint32
@@ -70,6 +72,17 @@ var (
 
 	PayloadHandshakeInitOffset     = 6
 	PayloadHandshakeResponseOffset = 10
+
+	PayloadTransportOffset = 10
+)
+
+var (
+	DefaultReadDeadline = time.Second * 5
+)
+
+var (
+	// A timeout error which should be similar enough to the timeout error used in the net package.
+	timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
 )
 
 type packetNet interface {
@@ -88,10 +101,22 @@ type Config struct {
 	*smux.Config
 }
 
+type unencryptedPacket struct {
+	payload    []byte
+	remoteAddr *net.UDPAddr
+}
+
+type encryptedPacket struct {
+	payload  []byte
+	destAddr *net.UDPAddr
+}
+
 type Session struct {
 	SenderIndex   PeerIndex
 	ReceiverIndex PeerIndex
 	RemoteAddr    *net.UDPAddr
+	logger        Logger
+	isInitiator   bool
 
 	connectionConfig      *PeerConnectionConfig
 	encryptionCipherstate *noise.CipherState
@@ -101,19 +126,98 @@ type Session struct {
 	send func([]byte, *net.UDPAddr) (int, error)
 
 	lastPktReceived time.Time
+	readDeadline    time.Duration
 
 	handshakeFinishedChan chan bool
+	receivePacketChan     chan *unencryptedPacket
+	sendPacketChan        chan *encryptedPacket
+	errorChan             chan error
 }
 
-func newSession(sendFunc func([]byte, *net.UDPAddr) (int, error)) *Session {
+func newSession(logger Logger, sendFunc func([]byte, *net.UDPAddr) (int, error)) *Session {
 	return &Session{
 		send:                  sendFunc,
 		handshakeFinishedChan: make(chan bool, 1),
+		receivePacketChan:     make(chan *unencryptedPacket, 100),
+		errorChan:             make(chan error, 100),
+		logger:                logger,
+		isInitiator:           false,
 	}
 }
 
 func (s *Session) handshakeFinished() chan bool {
 	return s.handshakeFinishedChan
+}
+
+func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
+	logger := s.logger.WithFields(map[string]interface{}{
+		"remoteAddr":    remoteAddr.String(),
+		"senderIndex":   s.SenderIndex,
+		"receiverIndex": s.ReceiverIndex,
+		"isInitiator":   s.isInitiator,
+	})
+	logger.Debug("Received packet in session")
+	var err error
+	pktPayload := pktBuf[PayloadTransportOffset:]
+	var decryptedPayload []byte
+	decryptedPayload, err = s.decryptionCipheState.Decrypt(
+		decryptedPayload,
+		pktBuf[:PayloadTransportOffset], // Use the whole header as additional authenticated data
+		pktPayload)
+	if err != nil {
+		logger.WithError(err).Info("Received invalid packet from known peer")
+		return
+	}
+	// We have received a valid packet, the remote address might have changed though so we update it here
+	s.RemoteAddr = remoteAddr
+	select {
+	case s.receivePacketChan <- &unencryptedPacket{payload: decryptedPayload, remoteAddr: remoteAddr}:
+		return
+	default:
+		s.errorChan <- errors.New("Dropping packet, because packets aren't read fast enough")
+	}
+}
+
+//Start to implement net.Conn interface, although later this will be done by multiplexed sessions
+
+func (s *Session) Write(b []byte) (n int, err error) {
+	logger := s.logger.WithFields(map[string]interface{}{
+		"remoteAddr":    s.RemoteAddr.String(),
+		"senderIndex":   s.SenderIndex,
+		"receiverIndex": s.ReceiverIndex,
+		"isInitiator":   s.isInitiator,
+	})
+
+	// Check if we have any errors in this session. If so, this is an indication that this session
+	// is now invalid
+	logger.Debug("Writing message into session")
+	select {
+	case err = <-s.errorChan:
+		if err != nil {
+			logger.WithError(err).Debug("Received an error in Write method, return error instead of attempting to write data")
+			return 0, err
+		}
+	default:
+	}
+	header := createTransportHeader(s.SenderIndex, s.ReceiverIndex)
+	var encryptedPayload []byte
+	encryptedPayload = s.encryptionCipherstate.Encrypt(encryptedPayload, header, b)
+	packet := append(header, encryptedPayload...)
+	return s.send(packet, s.RemoteAddr)
+}
+
+func (s *Session) Read(b []byte) (n int, err error) {
+	deadlineTicker := time.NewTicker(DefaultReadDeadline)
+	defer deadlineTicker.Stop()
+	select {
+	case pkt := <-s.receivePacketChan:
+		n := copy(b, pkt.payload)
+		return n, nil
+	case <-deadlineTicker.C:
+		return 0, timeoutError
+	case err := <-s.errorChan:
+		return 0, err
+	}
 }
 
 type PeerConnectionConfig struct {
@@ -132,7 +236,8 @@ func DefaultNoiseConfig(staticKeyPair noise.DHKey) *noise.Config {
 func readLoop(logger Logger,
 	closeChan chan bool, netConn packetNet,
 	handleHandshakeInit func(packetBuf []byte, addr *net.UDPAddr),
-	handleHandshakeResponse func(packetBuf []byte, addr *net.UDPAddr)) {
+	handleHandshakeResponse func(packetBuf []byte, addr *net.UDPAddr),
+	handleTransportPacket func(packetBuf []byte, addr *net.UDPAddr)) {
 	buf := make([]byte, DefaultReadBufferSize)
 	for {
 		select {
@@ -141,10 +246,6 @@ func readLoop(logger Logger,
 			return
 		default:
 			n, addr, err := netConn.ReadFrom(buf)
-			logger.WithFields(map[string]interface{}{
-				"byteCount":  n,
-				"remoteAddr": addr,
-			}).Debug("Received packet")
 			// TODO, we need to verify, that the UDPConn is still alive and kicking after an I/O Timeout. That
 			// is the current expectation.
 			if err != nil {
@@ -159,6 +260,11 @@ func readLoop(logger Logger,
 			if n < MinPacketLength {
 				continue
 			}
+			logger.WithFields(map[string]interface{}{
+				"byteCount":  n,
+				"remoteAddr": addr,
+			}).Debug("Received raw packet")
+
 			packetBuf := buf[:n]
 			version := packetBuf[0]
 			if !isVersionSupported(version) {
@@ -174,8 +280,12 @@ func readLoop(logger Logger,
 				if handleHandshakeResponse != nil {
 					handleHandshakeResponse(packetBuf, addr)
 				}
+			case PacketTypeTransport:
+				if handleTransportPacket != nil {
+					handleTransportPacket(packetBuf, addr)
+				}
 			default:
-				// TODO log error about invalid packet type
+				logger.WithField("packetType", pktType.Byte()).Debug("Received packet with unknown packet type")
 			}
 		}
 	}
@@ -255,6 +365,15 @@ func createHandshakeResponse(senderIndex, receiverIndex PeerIndex, noisePayload 
 	binary.LittleEndian.PutUint32(packetBuf[ReceiverIndexStartOffset:ReceiverIndexEndOffset], receiverIndex.Uint32())
 	packetBuf = append(packetBuf, noisePayload...)
 	return packetBuf
+}
+
+func createTransportHeader(senderIndex, receiverIndex PeerIndex) []byte {
+	b := make([]byte, 10)
+	b[0] = KrachVersion
+	b[1] = PacketTypeTransport.Byte()
+	binary.LittleEndian.PutUint32(b[SenderIndexStartOffset:SenderIndexEndOffset], senderIndex.Uint32())
+	binary.LittleEndian.PutUint32(b[ReceiverIndexStartOffset:ReceiverIndexEndOffset], receiverIndex.Uint32())
+	return b
 }
 
 func createHandshakeInit(senderIndex PeerIndex, noisePayload []byte) []byte {
