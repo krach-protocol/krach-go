@@ -37,8 +37,33 @@ func newInitiator(
 		certBundle:        certBundle,
 	}
 	i.noiseConfig.Initiator = true
-	go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse)
+	go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse, i.handleTransportPacket)
 	return i
+}
+
+func (i *Initiator) handleTransportPacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
+	senderIndex := extractSenderIndex(pktBuf)
+	receiverIndex := extractReceiverIndex(pktBuf)
+	logger := i.logger.WithFields(map[string]interface{}{
+		"remoteAddr":    remoteAddr,
+		"senderIndex":   senderIndex,
+		"receiverIndex": receiverIndex,
+	})
+
+	if i.peer == nil {
+		logger.Error("We have no valid peer session")
+		return
+	}
+	if i.peer.SenderIndex != senderIndex || i.peer.ReceiverIndex != receiverIndex {
+		logger.WithFields(map[string]interface{}{
+			"expectedReceiverIndex": i.peer.ReceiverIndex,
+			"expectedSenderIndex":   i.peer.SenderIndex,
+		}).Error("Received packet with unexpected receiver or sender index")
+		return
+	}
+	// TODO receiver and sender index need to be part of additional authenticated data
+
+	i.peer.receivePacket(pktBuf, remoteAddr)
 }
 
 func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte) (*Session, error) {
@@ -46,8 +71,9 @@ func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte)
 	var err error
 	i.noiseConfig.PeerStatic = remoteStaticKey
 
-	peer := newSession(i.netConn.WriteTo)
+	peer := newSession(i.logger, i.netConn.WriteTo)
 	peer.RemoteAddr = remoteAddr
+	peer.isInitiator = true
 
 	peer.handshakeState, err = noise.NewHandshakeState(*i.noiseConfig)
 	if err != nil {
@@ -56,6 +82,8 @@ func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte)
 	}
 
 	peer.SenderIndex = i.generatePeerIndex()
+	logger = logger.WithField("senderIndex", peer.SenderIndex)
+	logger.Debug("Initiating session")
 
 	handshakePayload, err := marshalCBOR(&handshakeInitPayload{
 		SenderIndex:      peer.SenderIndex,
@@ -94,7 +122,8 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 	logger := i.logger.WithFields(map[string]interface{}{
 		"senderIndex":   senderIndex,
 		"receiverIndex": receiverIndex,
-		"remoteAddr":    remoteAddr,
+		"remoteAddr":    remoteAddr.String(),
+		"isInitiator":   true,
 	})
 	if !i.noiseConfig.Initiator {
 		logger.Error("Receivers should never receive handshake responses")
@@ -104,6 +133,7 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 		logger.Error("Received packet with unknown sender index")
 		return
 	}
+	logger.Debug("Received handshake response")
 	pktMsg := pktBuf[PayloadHandshakeResponseOffset:]
 	var payload []byte
 	payload, encCs, decCs, err := i.peer.handshakeState.ReadMessage(payload, pktMsg)
@@ -128,6 +158,7 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 		logger.Error("Failed to verify receiver index")
 		return
 	}
+	i.peer.ReceiverIndex = receiverIndex
 	i.peer.handshakeFinishedChan <- true
 }
 
