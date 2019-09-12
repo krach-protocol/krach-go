@@ -1,8 +1,9 @@
 package krach
 
-import(
+import (
 	"net"
 )
+
 func readLoop(logger Logger,
 	closeChan chan bool, netConn packetNet,
 	handleHandshakeInit func(packetBuf []byte, addr *net.UDPAddr),
