@@ -10,9 +10,12 @@ import (
 )
 
 var (
+	// DefaultHandshakeTimeout is the default time we wait between handshake packets before we declare
+	// the handshake failed
 	DefaultHandshakeTimeout = time.Second * 10
 )
 
+// Initiator represents the initiating (client side) of a Session
 type Initiator struct {
 	netConn           packetNet
 	logger            Logger
