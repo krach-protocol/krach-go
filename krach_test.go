@@ -100,6 +100,15 @@ func TestHandshakeAndCipherstate(t *testing.T) {
 	assert.Equal(t, n1, n2)
 	assert.EqualValues(t, testMessage, readBuf[:n2])
 
+	n1, err = serverSess.Write(testMessage)
+	require.NoError(t, err)
+	assert.EqualValues(t, n1, len(testMessage))
+
+	n2, err = clientSess.Read(readBuf)
+	require.NoError(t, err)
+	assert.EqualValues(t, n2, n1)
+	assert.EqualValues(t, testMessage, readBuf[:n2])
+
 }
 
 func TestUDPReadDeadline(t *testing.T) {

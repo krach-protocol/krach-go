@@ -111,7 +111,7 @@ func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) 
 		logger.WithError(err).Error("Failed to create handshake response payload")
 	}
 	var rspMsg []byte
-	rspMsg, _, cs2, err := peer.handshakeState.WriteMessage(rspMsg, responsePayload)
+	rspMsg, cs1, cs2, err := peer.handshakeState.WriteMessage(rspMsg, responsePayload)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create response to handshake")
 		return
@@ -124,7 +124,7 @@ func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) 
 		return
 	}
 
-	peer.encryptionCipherstate = cs2
+	peer.encryptionCipherstate = cs1
 	peer.decryptionCipherState = cs2
 
 	peer.lastPktReceived = time.Now()
