@@ -23,9 +23,11 @@ var (
 )
 
 const (
+	// KrachVersion is the byte representation of the currently supported wire protocol format for Krach
 	KrachVersion byte = 0x00
 )
 
+// configure the CBOR codec, so we serialize structs as arrays and have always the same byte representation of data
 func init() {
 	ch.EncodeOptions.Canonical = true
 	ch.TimeNotBuiltin = false
@@ -33,34 +35,45 @@ func init() {
 
 const errPrefix = "krach: "
 
-//const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
+// Some constants for packet sizing
+const (
+	// MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
+	MaxPacketLength   = 508  // 576 bytes minimum IPv4 reassembly buffer - 60 bytes max IP header - 8 bytes UDP header
+	MinPacketLength   = 1    // Every packet smaller than this can only be invalid
+	MaxV6PacketLength = 1212 // 1280 bytes - 60 bytes IPv6 header - 8 bytes UDP header
+	HeaderLen         = 10   // Header length in bytes
+	AuthTagLen        = 16   // Length of the AuthenticationTag in bytes
+)
 
-const MaxPacketLength = 508    // 576 bytes minimum IPv4 reassembly buffer - 60 bytes max IP header - 8 bytes UDP header
-const MinPacketLength = 1      // Every packet smaller than this can only be invalid
-const MaxV6PacketLength = 1212 // 1280 bytes - 60 bytes IPv6 header - 8 bytes UDP header
-const HeaderLen = 10           // Header length in bytes
-const AuthTagLen = 16          // Length of the AuthenticationTag in bytes
-
+// DefaultReadBufferSize is the default size for the read buffer in the readLoop. At least one full packet
+// should fit in the read buffer
 var DefaultReadBufferSize = 2048
 
+// PacketType represents the type of a packet as unsigned 8 bit integer
 type PacketType uint8
 
+// Byte returns the representation of the packet type as a single byte
 func (p PacketType) Byte() byte {
 	return byte(p)
 }
 
+// Known packet types are defined here
 const (
 	PacketTypeHandshakeInit     PacketType = 1
 	PacketTypeHandshakeResponse PacketType = 2
 	PacketTypeTransport         PacketType = 0x10
 )
 
+// PeerIndex represents the 32 bit index each peer assigns to a session for identification independent
+// from IP address and port
 type PeerIndex uint32
 
+// Uint32 returns the PeerIndex as an unsigned 32 bit integer to be used when serializing a packet
 func (p PeerIndex) Uint32() uint32 {
 	return uint32(p)
 }
 
+// Several offsets used during serilization and deserilization
 var (
 	PacketTypeOffset = 1
 
@@ -74,11 +87,11 @@ var (
 	PayloadHandshakeResponseOffset = 10
 
 	PayloadTransportOffset = 10
-
-	authTagLength = 16
 )
 
 var (
+	// DefaultReadDeadline how long we wait when polling the UDP socket. Essentially this controls
+	// how quick we can react to state changes like closing a connection
 	DefaultReadDeadline = time.Second * 5
 )
 
@@ -87,15 +100,24 @@ var (
 	timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
 )
 
+// packetNet is a simple interface to abstract away different ways to efficiently poll from or write to
+// a UDP socket.
 type packetNet interface {
+	// ReadFrom takes a buffer in which data from this connection is read. It returns the amount of data
+	// read into the buffer, the remote address the data was received from and an error if something went
+	// wrong. If error is not nil, the other return values are not expected to be valid.
 	ReadFrom(b []byte) (int, *net.UDPAddr, error)
+	// Write To takes a buffer and a target UDP address and writes the data of the buffer to this target
+	// address. It return the amount of data which was written to the target and an error if anything went wrong
 	WriteTo(b []byte, addr *net.UDPAddr) (int, error)
 }
 
 type indextable interface {
 	// LookupPeer looks up the Peer by its ID. Returns nil, if the peer can't be found
 	LookupPeer(index PeerIndex) *Session
+	// RemovePeer removes the peer with the given PeerIndex if it exists
 	RemovePeer(index PeerIndex)
+	// AddPeer adds the given session with the given PeerIndex
 	AddPeer(index PeerIndex, peer *Session)
 }
 
@@ -103,22 +125,30 @@ type Config struct {
 	*smux.Config
 }
 
+// unencryptedPacket is a simple wraper struct around a byte slice and the address it was received from
 type unencryptedPacket struct {
 	payload    []byte
 	remoteAddr *net.UDPAddr
 }
 
+// encryptedPacket is similar to unencryptedPacket. Might use type aliasing here rather than redefining this struct
 type encryptedPacket struct {
 	payload  []byte
 	destAddr *net.UDPAddr
 }
 
+// Session represents some form of connection between two peers. A session does not depend upon IP address and port,
+// but on identifiers called PeerIndex. Each side chooses its own PeerIndex during handshake to identify this Session.
 type Session struct {
-	SenderIndex   PeerIndex
+	// SenderIndex is the PeerIndex chosen by the initiating (client) side
+	SenderIndex PeerIndex
+	//ReceiverIndex is the PeerIndex chosen by the receiving (server) side
 	ReceiverIndex PeerIndex
-	RemoteAddr    *net.UDPAddr
-	logger        Logger
-	isInitiator   bool
+	// RemoteAddr is the last known address of the remote side. This should be updated every time we receive a
+	// valid packet from a new address
+	RemoteAddr  *net.UDPAddr
+	logger      Logger
+	isInitiator bool
 
 	connectionConfig      *PeerConnectionConfig
 	encryptionCipherstate *noise.CipherState
@@ -147,10 +177,12 @@ func newSession(logger Logger, sendFunc func([]byte, *net.UDPAddr) (int, error))
 	}
 }
 
+// handshakeFinished returns a channel which indicates if a handshake was finished for this session
 func (s *Session) handshakeFinished() chan bool {
 	return s.handshakeFinishedChan
 }
 
+// receivePacket feeds a received, encrypted and unverified packet into this session
 func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
 	logger := s.logger.WithFields(map[string]interface{}{
 		"remoteAddr":    remoteAddr.String(),
@@ -184,6 +216,7 @@ func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
 
 //Start to implement net.Conn interface, although later this will be done by multiplexed sessions
 
+// Write takes a byte slice. The slice then packetized, encrypted and send to the last known remote address.
 func (s *Session) Write(b []byte) (n int, err error) {
 	logger := s.logger.WithFields(map[string]interface{}{
 		"remoteAddr":    s.RemoteAddr.String(),
@@ -209,10 +242,11 @@ func (s *Session) Write(b []byte) (n int, err error) {
 	encryptedPayload = s.encryptionCipherstate.Encrypt(encryptedPayload, header, b)
 	packet := append(header, encryptedPayload...)
 	n, err = s.send(packet, s.RemoteAddr)
-	n = n - (authTagLength + len(header))
+	n = n - (AuthTagLen + len(header))
 	return
 }
 
+// Read takes a byte slice into which data received within this session is read.
 func (s *Session) Read(b []byte) (n int, err error) {
 	deadlineTicker := time.NewTicker(DefaultReadDeadline)
 	defer deadlineTicker.Stop()
@@ -227,9 +261,14 @@ func (s *Session) Read(b []byte) (n int, err error) {
 	}
 }
 
+// PeerConnectionConfig contains the config of the initiating party. This is for future use
+// only. It is intended to let the initiator (client) define things like sleep intervals,
+// support for forward error correction etc. here.
 type PeerConnectionConfig struct {
 }
 
+// DefaultNoiseConfig returns our default noise configuration. Will be obsolete soon, as we have to have
+// a custom noise handshake implementation.
 func DefaultNoiseConfig(staticKeyPair noise.DHKey) *noise.Config {
 	return &noise.Config{
 		Pattern:       noise.HandshakeIK,
