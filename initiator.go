@@ -7,6 +7,8 @@ import (
 
 	"github.com/connctd/krach/certificates"
 	"github.com/flynn/noise"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/ed25519"
 )
 
 var (
@@ -14,6 +16,68 @@ var (
 	// the handshake failed
 	DefaultHandshakeTimeout = time.Second * 10
 )
+
+type InitiatiorConfigFunc func(*Initiator) error
+
+func ClientCert(privateKey ed25519.PrivateKey, clientCert *certificates.Certificate, intermediates []*certificates.Certificate) InitiatiorConfigFunc {
+	return func(i *Initiator) error {
+		keyPair := noise.DHKey{
+			Private: []byte(privateKey),
+			Public:  []byte(clientCert.PublicKey),
+		}
+		i.noiseConfig = DefaultNoiseConfig(keyPair)
+		// Make sure that the actual client cert is first in the slice. Just for a nice form
+		i.certBundle = append([]*certificates.Certificate{clientCert}, intermediates...)
+		return nil
+	}
+}
+
+func WithLogger(logger Logger) InitiatiorConfigFunc {
+	return func(i *Initiator) error {
+		i.logger = logger
+		return nil
+	}
+}
+
+func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFunc) (*Session, error) {
+	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	i := &Initiator{
+		logger: dummyLogger{},
+	}
+
+	for _, cf := range configFuncs {
+		if err := cf(i); err != nil {
+			return nil, err
+		}
+	}
+
+	// Verify that the initiator is in a usable state
+
+	if len(i.certBundle) == 0 {
+		return nil, errors.New("No client certificate specified")
+	}
+	if i.noiseConfig == nil {
+		return nil, errors.New("No valid noise config found. Are private key and a certificate correctly configured?")
+	}
+
+	if i.netConn == nil {
+		conn, err := newUDPNetConn(remoteAddr)
+		if err != nil {
+			return nil, err
+		}
+		i.netConn = conn
+	}
+
+	sess, err := i.openSession(remoteAddr, remoteStaticKey)
+	if err != nil {
+		return nil, err
+	}
+	return sess, nil
+}
 
 // Initiator represents the initiating (client side) of a Session
 type Initiator struct {
