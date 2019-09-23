@@ -16,8 +16,16 @@ func (u *udpNetConn) ReadFrom(b []byte) (int, *net.UDPAddr, error) {
 	return u.ReadFromUDP(b)
 }
 
+func listenUDPNetConn(listenAddr *net.UDPAddr) (*udpNetConn, error) {
+	baseConn, err := net.ListenUDP("udp", listenAddr)
+	if err != nil {
+		return nil, err
+	}
+	return &udpNetConn{baseConn}, nil
+}
+
 func newUDPNetConn(remoteAddr *net.UDPAddr) (*udpNetConn, error) {
-	baseConn, err := net.DialUDP("udp", nil, remoteAddr)
+	baseConn, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return nil, err
 	}

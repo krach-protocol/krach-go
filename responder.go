@@ -6,7 +6,71 @@ import (
 
 	"github.com/connctd/krach/certificates"
 	"github.com/flynn/noise"
+	"github.com/pkg/errors"
 )
+
+type ResponderConfigFunc func(r *Responder) error
+
+func WithKeyPair(dhKey noise.DHKey) ResponderConfigFunc {
+	return func(r *Responder) error {
+		r.noiseConfig = DefaultNoiseConfig(dhKey)
+		return nil
+	}
+}
+
+func WithCertPool(certPool *certificates.CertPool) ResponderConfigFunc {
+	return func(r *Responder) error {
+		r.certPool = certPool
+		return nil
+	}
+}
+
+func WithResponderLogger(logg Logger) ResponderConfigFunc {
+	return func(r *Responder) error {
+		r.logger = logg
+		return nil
+	}
+}
+
+func Listen(listenAddr string, configFuncs ...ResponderConfigFunc) (*Responder, error) {
+	r := &Responder{
+		logger:              dummyLogger{},
+		readLoopCloseChan:   make(chan bool, 1),
+		acceptedSessionChan: make(chan *Session, 100),
+		errorChan:           make(chan error, 10),
+	}
+
+	for _, cf := range configFuncs {
+		if err := cf(r); err != nil {
+			return nil, err
+		}
+	}
+
+	lAddr, err := net.ResolveUDPAddr("udp", listenAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	if r.netConn == nil {
+		r.netConn, err = listenUDPNetConn(lAddr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if r.table == nil {
+		r.table = newInMemoryIndex()
+	}
+
+	if r.noiseConfig == nil {
+		return nil, errors.New("No DH key pair specified")
+	}
+	if r.certPool == nil {
+		return nil, errors.New("No certificate to validate client certificates specified")
+	}
+	go readLoop(r.logger, r.readLoopCloseChan, r.netConn, r.handleHandshakeInit, nil, r.handleTransportPacket)
+	return r, nil
+}
 
 type ResponderConfig struct {
 	StaticKeyPair noise.DHKey

@@ -111,6 +111,45 @@ func TestHandshakeAndCipherstate(t *testing.T) {
 
 }
 
+func TestLocalNetworkConnection(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
+	logg := LogrusLogger(logrus.WithField("test", true))
+
+	serverKeyPair, err := noise.DH25519.GenerateKeypair(rand.Reader)
+	require.NoError(t, err)
+	clientKey, err := noise.DH25519.GenerateKeypair(rand.Reader)
+	require.NoError(t, err)
+
+	clientCert := &certificates.Certificate{
+		SerialNumber: 1,
+		Issuer:       rootCert.Subject,
+		Validity:     &certificates.Validity{},
+		Subject:      "testclient",
+		PublicKey:    clientKey.Public,
+		Extensions:   []certificates.Extension{},
+	}
+	clientCert, err = certificates.SignCertificate(clientCert, rootKey)
+	require.NoError(t, err)
+
+	serverAddr := "127.0.0.1:8901"
+
+	l, err := Listen(serverAddr,
+		WithResponderLogger(logg),
+		WithKeyPair(serverKeyPair),
+		WithCertPool(certificates.NewCertPool(rootCert)),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, l)
+
+	clientSess, err := Dial(serverAddr, serverKeyPair.Public, WithLogger(logg), ClientCert(clientKey.Private, clientCert, nil))
+	require.NoError(t, err)
+	require.NotEmpty(t, clientSess)
+
+	serverSess, err := l.Accept()
+	require.NoError(t, err)
+	require.NotEmpty(t, serverSess)
+}
+
 func TestUDPReadDeadline(t *testing.T) {
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{
 		Port: 9002,

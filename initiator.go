@@ -26,6 +26,7 @@ func ClientCert(privateKey ed25519.PrivateKey, clientCert *certificates.Certific
 			Public:  []byte(clientCert.PublicKey),
 		}
 		i.noiseConfig = DefaultNoiseConfig(keyPair)
+		i.noiseConfig.Initiator = true
 		// Make sure that the actual client cert is first in the slice. Just for a nice form
 		i.certBundle = append([]*certificates.Certificate{clientCert}, intermediates...)
 		return nil
@@ -40,11 +41,6 @@ func WithLogger(logger Logger) InitiatiorConfigFunc {
 }
 
 func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFunc) (*Session, error) {
-	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-
 	i := &Initiator{
 		logger: dummyLogger{},
 	}
@@ -64,6 +60,11 @@ func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFu
 		return nil, errors.New("No valid noise config found. Are private key and a certificate correctly configured?")
 	}
 
+	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+
 	if i.netConn == nil {
 		conn, err := newUDPNetConn(remoteAddr)
 		if err != nil {
@@ -71,7 +72,7 @@ func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFu
 		}
 		i.netConn = conn
 	}
-
+	go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse, i.handleTransportPacket)
 	sess, err := i.openSession(remoteAddr, remoteStaticKey)
 	if err != nil {
 		return nil, err
