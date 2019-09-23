@@ -46,7 +46,8 @@ func NewCertPool(rootCerts ...*Certificate) *CertPool {
 func (c *CertPool) Validate(cert *Certificate) error {
 
 	issuerCert, exists := (*c)[cert.Issuer]
-	if !exists {
+	// A nil root cert shouldn't happen, but who knows
+	if !exists || issuerCert == nil {
 		return errors.New("certificate is not signed by a known issuer")
 	}
 	// Validate the issuer cert, might be invalid too (expired etc.)
@@ -57,7 +58,7 @@ func (c *CertPool) Validate(cert *Certificate) error {
 	return validateCertificate(cert, issuerCert.PublicKey)
 }
 
-func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, error) {
+func (c *CertPool) ValidateBundle(certBundle []*Certificate) (clientCert *Certificate, err error) {
 	// FIXME when we have defined extensions, validate capabilities of certificates through extensions
 	issuerMap := make(map[string]*Certificate)
 	subjectMap := make(map[string]*Certificate)
@@ -66,7 +67,6 @@ func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, erro
 		subjectMap[cert.Subject] = cert
 	}
 
-	var clientCert *Certificate
 	var intermediateCerts []*Certificate
 	for _, cert := range certBundle {
 		if _, found := issuerMap[cert.Subject]; found {
@@ -87,10 +87,10 @@ func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, erro
 		}
 	} else {
 		// Might be that the certificate is already trusted through the current pool
-		if err := c.Validate(clientCert); err == nil {
+		if err = c.Validate(clientCert); err == nil {
 			return clientCert, nil
 		}
-		return nil, errors.New("No issuer for the client certificate was found in the intermediate certificates")
+		return nil, errors.New("No issuer for the client certificate was found in the intermediate certificates: " + err.Error())
 	}
 
 	var chainTopCert *Certificate
@@ -114,7 +114,8 @@ func (c *CertPool) ValidateBundle(certBundle []*Certificate) (*Certificate, erro
 	return clientCert, nil
 }
 
-func validateCertificate(cert *Certificate, pubKey ed25519.PublicKey) error {
+func validateCertificate(origCert *Certificate, pubKey ed25519.PublicKey) error {
+	cert := origCert.Copy()
 	if !cert.Validity.NotBefore.IsZero() {
 		notBefore := cert.Validity.NotBefore.StdTime()
 		if time.Now().Before(notBefore) {
@@ -131,6 +132,7 @@ func validateCertificate(cert *Certificate, pubKey ed25519.PublicKey) error {
 	sig := cert.Signature
 
 	cert.Signature = nil
+	// FIXME, we need a deep copy of this certificate!!!!
 	certBytes, err := cert.Bytes()
 
 	if err != nil {
@@ -154,6 +156,27 @@ type Certificate struct {
 	PublicKey  ed25519.PublicKey `codec:"public_key"`
 	Extensions []Extension       `codec:"extensions"`
 	Signature  []byte            `codec:"signature"`
+}
+
+// Copy creates a deep copy of this certificate. This can be useful for operations where we need to change
+// parts of the certificate, but need to continue working with an unaltered original.
+func (c *Certificate) Copy() *Certificate {
+	// Convert the public key to a byte slice and create a copy of this slice
+	p2 := append([]byte{}, []byte(c.PublicKey)...)
+	c2 := &Certificate{
+		SerialNumber: c.SerialNumber,
+		Issuer:       c.Issuer,
+		Validity: &Validity{
+			NotBefore: c.Validity.NotBefore,
+			NotAfter:  c.Validity.NotAfter,
+		},
+		Subject: c.Subject,
+		// Reconstruct a public key from the byte slice copy we have created above
+		PublicKey:  ed25519.PublicKey(p2),
+		Extensions: append([]Extension{}, c.Extensions...),
+		Signature:  append([]byte{}, c.Signature...),
+	}
+	return c2
 }
 
 // Bytes returns the CBOR encoded form of the certificate as byte slice

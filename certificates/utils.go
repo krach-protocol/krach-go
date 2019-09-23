@@ -23,6 +23,9 @@ func SelfSignedCertificate(subject string,
 	notBefore, notAfter time.Time,
 	extensions []Extension) (*Certificate, ed25519.PrivateKey, error) {
 	validity := &Validity{}
+	if extensions == nil {
+		extensions = []Extension{}
+	}
 	if notBefore.IsZero() {
 		validity.NotBefore = &ZeroTime
 	} else {

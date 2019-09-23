@@ -248,3 +248,16 @@ func TestCertPoolValidateTrustedBundle(t *testing.T) {
 	assert.EqualValues(t, clientCert, c)
 
 }
+
+func TestCopyCertificate(t *testing.T) {
+	c1, _, err := SelfSignedCertificate("Ned Flanders", time.Now(), time.Now().Add(time.Minute), nil)
+	require.NoError(t, err)
+
+	c2 := c1.Copy()
+	assert.EqualValues(t, c1, c2)
+
+	c2.Signature = nil
+	c2.Validity.NotAfter = NewTime(time.Now().Add(time.Minute * 5))
+	assert.Len(t, c1.Signature, 64)
+	assert.Len(t, c2.Signature, 0)
+}
