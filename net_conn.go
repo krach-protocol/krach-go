@@ -5,15 +5,16 @@ import (
 )
 
 type udpNetConn struct {
-	*net.UDPConn
+	net.PacketConn
 }
 
 func (u *udpNetConn) WriteTo(b []byte, addr *net.UDPAddr) (int, error) {
-	return u.WriteToUDP(b, addr)
+	return u.PacketConn.WriteTo(b, addr)
 }
 
 func (u *udpNetConn) ReadFrom(b []byte) (int, *net.UDPAddr, error) {
-	return u.ReadFromUDP(b)
+	n, addr, err := u.PacketConn.ReadFrom(b)
+	return n, addr.(*net.UDPAddr), err
 }
 
 func listenUDPNetConn(listenAddr *net.UDPAddr) (*udpNetConn, error) {

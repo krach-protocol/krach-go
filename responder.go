@@ -32,6 +32,13 @@ func WithResponderLogger(logg Logger) ResponderConfigFunc {
 	}
 }
 
+func withResponderNetConn(conn packetNet) ResponderConfigFunc {
+	return func(r *Responder) error {
+		r.netConn = conn
+		return nil
+	}
+}
+
 func Listen(listenAddr string, configFuncs ...ResponderConfigFunc) (*Responder, error) {
 	r := &Responder{
 		logger:              dummyLogger{},

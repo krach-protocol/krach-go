@@ -40,6 +40,13 @@ func WithLogger(logger Logger) InitiatiorConfigFunc {
 	}
 }
 
+func withInitiatorConn(conn packetNet) InitiatiorConfigFunc {
+	return func(i *Initiator) error {
+		i.netConn = conn
+		return nil
+	}
+}
+
 func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFunc) (*Session, error) {
 	i := &Initiator{
 		logger: dummyLogger{},
