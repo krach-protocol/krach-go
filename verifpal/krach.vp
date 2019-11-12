@@ -1,0 +1,31 @@
+attacker[active]
+
+principal Responder [
+    knows private rootCert
+    generates rand2
+    serverKey = G^rand2
+]
+
+principal Initiator[]
+
+Responder -> Initiator: [serverKey]
+
+principal Initiator[
+    knows private rootCert
+    knows private msg1
+	generates rand1
+    ClientKey = G^rand1
+	ClientCert = SIGN(ClientKey, rootCert)
+    e1 = AEAD_ENC(ClientKey, msg1, serverKey)
+]
+
+Initiator -> Responder: e1, [ClientKey]
+
+principal Responder [
+    e1_dec = AEAD_DEC(ClientKey, e1, serverKey)
+]
+
+queries[
+    confidentiality? msg1
+    authentication? Responder -> Initiator: [serverKey]
+]
