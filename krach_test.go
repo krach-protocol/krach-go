@@ -77,10 +77,12 @@ func TestHandshakeAndCipherstate(t *testing.T) {
 	client := newInitiator(logger, clientSock, clientKey, PeerIndex(32), []*certificates.Certificate{clientCert})
 
 	clientSess, err := client.openSession(serverAddr, serverKeyPair.Public)
+	defer clientSess.Close()
 	require.NoError(t, err)
 
 	time.Sleep(time.Millisecond * 50)
 	serverSess, err := server.Accept()
+	defer serverSess.Close()
 	require.NoError(t, err)
 
 	require.NotNil(t, clientSess)
@@ -144,10 +146,26 @@ func TestLocalNetworkConnection(t *testing.T) {
 	clientSess, err := Dial(serverAddr, serverKeyPair.Public, WithLogger(logg), ClientCert(clientKey.Private, clientCert, nil))
 	require.NoError(t, err)
 	require.NotEmpty(t, clientSess)
+	defer clientSess.Close()
 
 	serverSess, err := l.Accept()
 	require.NoError(t, err)
 	require.NotEmpty(t, serverSess)
+	defer serverSess.Close()
+
+	testMessage := []byte(`Der Hegemoniekonsul saß auf dem Balkon seines Ebenholzraumschiffs 
+		und spielte Rachmaninoffs Prelude in cis-Moll auf einem uralten, 
+		aber gut erhaltenen Steinway, während sich große grüne Saurierwesen unten 
+		in den Sümpfen drängten und heulten`)
+	n1, err := clientSess.Write(testMessage)
+	require.NoError(t, err)
+	assert.EqualValues(t, len(testMessage), n1)
+
+	readBuf := make([]byte, 4096)
+	n2, err := serverSess.Read(readBuf)
+	require.NoError(t, err)
+	assert.Equal(t, n1, n2)
+	assert.EqualValues(t, testMessage, readBuf[:n2])
 }
 
 func TestUDPReadDeadline(t *testing.T) {

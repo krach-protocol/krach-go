@@ -48,4 +48,5 @@ keys, associated data etc manually to the handshake algorithm.
 * 1 byte PacketType
 * 4 byte SenderIndex (need to see if this is necessary after handshake)
 * 4 byte ReceiverIndex 
+* n bytes nonce
 * Noise protocol encrypted data

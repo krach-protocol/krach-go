@@ -141,7 +141,7 @@ func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) 
 		logger.WithError(err).Error("Failed to create handshake state for peer")
 		return
 	}
-	peer := newSession(r.logger, r.netConn.WriteTo)
+	peer := newSession(r.logger, r.netConn)
 	peer.isInitiator = false
 	peer.RemoteAddr = remoteAddr
 	peer.handshakeState = hsState
@@ -194,9 +194,7 @@ func (r *Responder) handleHandshakeInit(pktBuf []byte, remoteAddr *net.UDPAddr) 
 		logger.WithError(err).Error("Failed to send handshake response to peer")
 		return
 	}
-
-	peer.encryptionCipherstate = cs1
-	peer.decryptionCipherState = cs2
+	peer.transportCipher = newNoiseCipher(cs1, cs2)
 
 	peer.lastPktReceived = time.Now()
 	r.table.AddPeer(peer.ReceiverIndex, peer)

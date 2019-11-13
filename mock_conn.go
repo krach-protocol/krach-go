@@ -50,6 +50,16 @@ func (m *mockConnection) Listen(localAddr *net.UDPAddr) (*halfConn, error) {
 	return conn, nil
 }
 
+func (m *mockConnection) Close() error {
+	m.rwLock.Lock()
+	defer m.rwLock.Unlock()
+	for name, packetChan := range m.hosts {
+		close(packetChan)
+		delete(m.hosts, name)
+	}
+	return nil
+}
+
 func newMockConnection() *mockConnection {
 	return &mockConnection{
 		hosts:  make(map[string]chan *mockPacket),
@@ -68,14 +78,25 @@ type halfConn struct {
 	recvChan  chan *mockPacket
 }
 
+func (h *halfConn) Close() error {
+	close(h.recvChan)
+	return nil
+}
+
 func (h *halfConn) ReadFrom(b []byte) (int, *net.UDPAddr, error) {
 	select {
 	case pkt := <-h.recvChan:
-		if len(b) < len(pkt.payload) {
-			return 0, nil, errors.New("Receive buffer too small")
+		// Apparently it is possible to read nil from a closed connection
+		if pkt != nil {
+			if len(b) < len(pkt.payload) {
+				return 0, nil, errors.New("Receive buffer too small")
+			}
+			n := copy(b, pkt.payload)
+			return n, pkt.sender, nil
 		}
-		n := copy(b, pkt.payload)
-		return n, pkt.sender, nil
+		// Seems that the connection is closed
+		return 0, nil, errors.New("i/o connection closed")
+
 	default:
 		return 0, nil, timeoutError
 	}

@@ -87,6 +87,10 @@ var (
 	PayloadHandshakeResponseOffset = 10
 
 	PayloadTransportOffset = 10
+
+	// Investigate if we can get away with 32 bit nonces...
+	NonceStartOffset = 10
+	NonceEndOffset   = 18
 )
 
 var (
@@ -110,6 +114,13 @@ type packetNet interface {
 	// Write To takes a buffer and a target UDP address and writes the data of the buffer to this target
 	// address. It return the amount of data which was written to the target and an error if anything went wrong
 	WriteTo(b []byte, addr *net.UDPAddr) (int, error)
+
+	Close() error
+}
+
+type cipher interface {
+	EncryptToRemote(out, payload, ad []byte, nonce uint64)
+	DecryptFromRemote(out, payload, ad []byte, nonce uint64) error
 }
 
 type indextable interface {
@@ -137,6 +148,11 @@ type encryptedPacket struct {
 	destAddr *net.UDPAddr
 }
 
+type packetSender interface {
+	Close() error
+	WriteTo([]byte, *net.UDPAddr) (int, error)
+}
+
 // Session represents some form of connection between two peers. A session does not depend upon IP address and port,
 // but on identifiers called PeerIndex. Each side chooses its own PeerIndex during handshake to identify this Session.
 type Session struct {
@@ -150,12 +166,13 @@ type Session struct {
 	logger      Logger
 	isInitiator bool
 
-	connectionConfig      *PeerConnectionConfig
-	encryptionCipherstate *noise.CipherState
-	decryptionCipherState *noise.CipherState
-	handshakeState        *noise.HandshakeState
+	connectionConfig *PeerConnectionConfig
+	transportCipher  cipher
+	handshakeState   *noise.HandshakeState
+	receivingNonce   uint64
+	sendingNonce     uint64
 
-	send func([]byte, *net.UDPAddr) (int, error)
+	sender packetSender
 
 	lastPktReceived time.Time
 	readDeadline    time.Duration
@@ -166,14 +183,15 @@ type Session struct {
 	errorChan             chan error
 }
 
-func newSession(logger Logger, sendFunc func([]byte, *net.UDPAddr) (int, error)) *Session {
+func newSession(logger Logger, sender packetSender) *Session {
 	return &Session{
-		send:                  sendFunc,
+		sender:                sender,
 		handshakeFinishedChan: make(chan bool, 1),
 		receivePacketChan:     make(chan *unencryptedPacket, 100),
 		errorChan:             make(chan error, 100),
 		logger:                logger,
 		isInitiator:           false,
+		receivingNonce:        0,
 	}
 }
 
@@ -192,14 +210,8 @@ func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
 	})
 	logger.Debug("Received packet in session")
 	var err error
-	pktPayload := pktBuf[PayloadTransportOffset:]
-	header := pktBuf[:PayloadTransportOffset]
 
-	var decryptedPayload []byte
-	decryptedPayload, err = s.decryptionCipherState.Decrypt(
-		decryptedPayload,
-		header, // Use the whole header as additional authenticated data
-		pktPayload)
+	decryptedPayload, err := s.decryptPacket(pktBuf)
 	if err != nil {
 		logger.WithError(err).Info("Received invalid packet from known peer")
 		return
@@ -212,6 +224,36 @@ func (s *Session) receivePacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
 	default:
 		s.errorChan <- errors.New("Dropping packet, because packets aren't read fast enough")
 	}
+}
+
+func (s *Session) decryptPacket(pktBuf []byte) ([]byte, error) {
+	pktPayload := pktBuf[PayloadTransportOffset:]
+	header := pktBuf[:PayloadTransportOffset]
+	nonce := extractNonce(pktBuf)
+	// This looks like a reused nonce, so we reject it
+	if nonce <= s.receivingNonce {
+		return nil, errors.New("Invalid nonce")
+	}
+	var decryptedPayload []byte
+	err := s.transportCipher.DecryptFromRemote(decryptedPayload, pktPayload, header, nonce)
+	if err == nil {
+		// FIXME we want to detect already used nonces here, this might not be the smartest way, especially
+		// if we expect packets out of order...
+		s.receivingNonce = nonce
+	}
+	return decryptedPayload, err
+}
+
+func (s *Session) encryptPacket(header, payload []byte) []byte {
+	s.sendingNonce = s.sendingNonce + 1
+	binary.LittleEndian.PutUint64(header[NonceStartOffset:NonceEndOffset], s.sendingNonce)
+	var encryptedPayload []byte
+	s.transportCipher.EncryptToRemote(encryptedPayload, payload, header, s.sendingNonce)
+	return encryptedPayload
+}
+
+func (s *Session) Close() error {
+	return s.sender.Close()
 }
 
 //Start to implement net.Conn interface, although later this will be done by multiplexed sessions
@@ -238,10 +280,9 @@ func (s *Session) Write(b []byte) (n int, err error) {
 		// Do nothing, just check if we are having an error
 	}
 	header := createTransportHeader(s.SenderIndex, s.ReceiverIndex)
-	var encryptedPayload []byte
-	encryptedPayload = s.encryptionCipherstate.Encrypt(encryptedPayload, header, b)
+	encryptedPayload := s.encryptPacket(header, b)
 	packet := append(header, encryptedPayload...)
-	n, err = s.send(packet, s.RemoteAddr)
+	n, err = s.sender.WriteTo(packet, s.RemoteAddr)
 	n = n - (AuthTagLen + len(header))
 	return
 }
@@ -285,6 +326,10 @@ func extractReceiverIndex(pktBuf []byte) PeerIndex {
 
 func extractSenderIndex(pktBuf []byte) PeerIndex {
 	return PeerIndex(binary.LittleEndian.Uint32(pktBuf[SenderIndexStartOffset:SenderIndexEndOffset]))
+}
+
+func extractNonce(pktBuf []byte) uint64 {
+	return binary.LittleEndian.Uint64(pktBuf[NonceStartOffset:NonceEndOffset])
 }
 
 type handshakeInitPayload struct {
@@ -356,7 +401,7 @@ func createHandshakeResponse(senderIndex, receiverIndex PeerIndex, noisePayload 
 }
 
 func createTransportHeader(senderIndex, receiverIndex PeerIndex) []byte {
-	b := make([]byte, 10)
+	b := make([]byte, 18)
 	b[0] = KrachVersion
 	b[1] = PacketTypeTransport.Byte()
 	binary.LittleEndian.PutUint32(b[SenderIndexStartOffset:SenderIndexEndOffset], senderIndex.Uint32())

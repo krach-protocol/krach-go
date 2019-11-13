@@ -146,7 +146,7 @@ func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte)
 	var err error
 	i.noiseConfig.PeerStatic = remoteStaticKey
 
-	peer := newSession(i.logger, i.netConn.WriteTo)
+	peer := newSession(i.logger, i.netConn)
 	peer.RemoteAddr = remoteAddr
 	peer.isInitiator = true
 
@@ -216,8 +216,7 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 		logger.WithError(err).Error("Failed to read noise message and complete handshake")
 		return
 	}
-	i.peer.encryptionCipherstate = cs2
-	i.peer.decryptionCipherState = cs1
+	i.peer.transportCipher = newNoiseCipher(cs2, cs1)
 	i.peer.lastPktReceived = time.Now()
 	// Handshake should be finished on client side
 	response := &handshakeResponsePayload{}
