@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	mathrand "math/rand"
 	"net"
 	"time"
@@ -49,21 +50,6 @@ const (
 // should fit in the read buffer
 var DefaultReadBufferSize = 2048
 
-// PacketType represents the type of a packet as unsigned 8 bit integer
-type PacketType uint8
-
-// Byte returns the representation of the packet type as a single byte
-func (p PacketType) Byte() byte {
-	return byte(p)
-}
-
-// Known packet types are defined here
-const (
-	PacketTypeHandshakeInit     PacketType = 1
-	PacketTypeHandshakeResponse PacketType = 2
-	PacketTypeTransport         PacketType = 0x10
-)
-
 // PeerIndex represents the 32 bit index each peer assigns to a session for identification independent
 // from IP address and port
 type PeerIndex uint32
@@ -75,7 +61,8 @@ func (p PeerIndex) Uint32() uint32 {
 
 // Several offsets used during serilization and deserilization
 var (
-	PacketTypeOffset = 1
+	ProtocolVersionOffset = 0
+	PacketTypeOffset      = 1
 
 	ReceiverIndexStartOffset = 6
 	ReceiverIndexEndOffset   = ReceiverIndexStartOffset + 4
@@ -162,17 +149,18 @@ type Session struct {
 	ReceiverIndex PeerIndex
 	// RemoteAddr is the last known address of the remote side. This should be updated every time we receive a
 	// valid packet from a new address
-	RemoteAddr  *net.UDPAddr
-	logger      Logger
-	isInitiator bool
+	RemoteAddr *net.UDPAddr
+	logger     Logger
 
+	noiseConfig      *noise.Config
 	connectionConfig *PeerConnectionConfig
 	transportCipher  cipher
 	handshakeState   *noise.HandshakeState
 	receivingNonce   uint64
 	sendingNonce     uint64
 
-	sender packetSender
+	sender  packetSender
+	netConn packetNet
 
 	lastPktReceived time.Time
 	readDeadline    time.Duration
@@ -181,6 +169,7 @@ type Session struct {
 	receivePacketChan     chan *unencryptedPacket
 	sendPacketChan        chan *encryptedPacket
 	errorChan             chan error
+	readLoopCloseChan     chan bool
 }
 
 func newSession(logger Logger, sender packetSender) *Session {
@@ -310,13 +299,12 @@ type PeerConnectionConfig struct {
 
 // DefaultNoiseConfig returns our default noise configuration. Will be obsolete soon, as we have to have
 // a custom noise handshake implementation.
-func DefaultNoiseConfig(staticKeyPair noise.DHKey) *noise.Config {
+func DefaultNoiseConfig() *noise.Config {
 	return &noise.Config{
-		Pattern:       noise.HandshakeIK,
-		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2s),
-		Random:        rand.Reader,
-		Initiator:     false,
-		StaticKeypair: staticKeyPair,
+		Pattern:     noise.HandshakeIK,
+		CipherSuite: noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2s),
+		Random:      rand.Reader,
+		Initiator:   false,
 	}
 }
 
@@ -324,8 +312,11 @@ func extractReceiverIndex(pktBuf []byte) PeerIndex {
 	return PeerIndex(binary.LittleEndian.Uint32(pktBuf[ReceiverIndexStartOffset:ReceiverIndexEndOffset]))
 }
 
-func extractSenderIndex(pktBuf []byte) PeerIndex {
-	return PeerIndex(binary.LittleEndian.Uint32(pktBuf[SenderIndexStartOffset:SenderIndexEndOffset]))
+func extractSenderIndex(pktBuf []byte) (PeerIndex, error) {
+	if len(pktBuf) < SenderIndexEndOffset+1 {
+		return PeerIndex(0), fmt.Errorf("Packet is too short to contain a sender index")
+	}
+	return PeerIndex(binary.LittleEndian.Uint32(pktBuf[SenderIndexStartOffset:SenderIndexEndOffset])), nil
 }
 
 func extractNonce(pktBuf []byte) uint64 {
@@ -393,7 +384,7 @@ type handshakeResponsePayload struct {
 func createHandshakeResponse(senderIndex, receiverIndex PeerIndex, noisePayload []byte) []byte {
 	packetBuf := make([]byte, 10)
 	packetBuf[0] = KrachVersion
-	packetBuf[1] = PacketTypeHandshakeResponse.Byte()
+	packetBuf[1] = PacketTypeHandshakeInitResponse.Byte()
 	binary.LittleEndian.PutUint32(packetBuf[SenderIndexStartOffset:SenderIndexEndOffset], senderIndex.Uint32())
 	binary.LittleEndian.PutUint32(packetBuf[ReceiverIndexStartOffset:ReceiverIndexEndOffset], receiverIndex.Uint32())
 	packetBuf = append(packetBuf, noisePayload...)
@@ -407,15 +398,6 @@ func createTransportHeader(senderIndex, receiverIndex PeerIndex) []byte {
 	binary.LittleEndian.PutUint32(b[SenderIndexStartOffset:SenderIndexEndOffset], senderIndex.Uint32())
 	binary.LittleEndian.PutUint32(b[ReceiverIndexStartOffset:ReceiverIndexEndOffset], receiverIndex.Uint32())
 	return b
-}
-
-func createHandshakeInit(senderIndex PeerIndex, noisePayload []byte) []byte {
-	packetBuf := make([]byte, 6)
-	packetBuf[0] = KrachVersion
-	packetBuf[1] = PacketTypeHandshakeInit.Byte()
-	binary.LittleEndian.PutUint32(packetBuf[2:], senderIndex.Uint32())
-	packetBuf = append(packetBuf, noisePayload...)
-	return packetBuf
 }
 
 func createHandshakeResponsePayload(senderIndex, receiverIndex PeerIndex) ([]byte, error) {

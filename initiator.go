@@ -1,6 +1,7 @@
 package krach
 
 import (
+	"fmt"
 	mathrand "math/rand"
 	"net"
 	"time"
@@ -17,40 +18,49 @@ var (
 	DefaultHandshakeTimeout = time.Second * 10
 )
 
-type InitiatiorConfigFunc func(*Initiator) error
+type InitiatiorConfigFunc func(*initiatorConfig) error
 
 func ClientCert(privateKey ed25519.PrivateKey, clientCert *certificates.Certificate, intermediates []*certificates.Certificate) InitiatiorConfigFunc {
-	return func(i *Initiator) error {
+	return func(i *initiatorConfig) error {
 		keyPair := noise.DHKey{
 			Private: []byte(privateKey),
 			Public:  []byte(clientCert.PublicKey),
 		}
-		i.noiseConfig = DefaultNoiseConfig(keyPair)
-		i.noiseConfig.Initiator = true
+
+		i.staticKeyPair = keyPair
 		// Make sure that the actual client cert is first in the slice. Just for a nice form
-		i.certBundle = append([]*certificates.Certificate{clientCert}, intermediates...)
+		i.certs = append([]*certificates.Certificate{clientCert}, intermediates...)
 		return nil
 	}
 }
 
 func WithLogger(logger Logger) InitiatiorConfigFunc {
-	return func(i *Initiator) error {
+	return func(i *initiatorConfig) error {
 		i.logger = logger
 		return nil
 	}
 }
 
 func withInitiatorConn(conn packetNet) InitiatiorConfigFunc {
-	return func(i *Initiator) error {
+	return func(i *initiatorConfig) error {
 		i.netConn = conn
 		return nil
 	}
 }
 
-func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFunc) (*Session, error) {
-	i := &Initiator{
+type initiatorConfig struct {
+	logger        Logger
+	certs         []*certificates.Certificate
+	netConn       packetNet
+	staticKeyPair noise.DHKey
+}
+
+func Dial(addr string, configFuncs ...InitiatiorConfigFunc) (*Session, error) {
+	i := &initiatorConfig{
 		logger: dummyLogger{},
 	}
+	noiseConfig := DefaultNoiseConfig()
+	noiseConfig.Initiator = true
 
 	for _, cf := range configFuncs {
 		if err := cf(i); err != nil {
@@ -60,12 +70,10 @@ func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFu
 
 	// Verify that the initiator is in a usable state
 
-	if len(i.certBundle) == 0 {
+	if len(i.certs) == 0 {
 		return nil, errors.New("No client certificate specified")
 	}
-	if i.noiseConfig == nil {
-		return nil, errors.New("No valid noise config found. Are private key and a certificate correctly configured?")
-	}
+	noiseConfig.StaticKeypair = i.staticKeyPair
 
 	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -79,10 +87,20 @@ func Dial(addr string, remoteStaticKey []byte, configFuncs ...InitiatiorConfigFu
 		}
 		i.netConn = conn
 	}
-	go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse, i.handleTransportPacket)
-	sess, err := i.openSession(remoteAddr, remoteStaticKey)
+	//go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse, i.handleTransportPacket)
+	sess := newSession(i.logger, i.netConn)
+	sess.RemoteAddr = remoteAddr
+	sess.handshakeState, err = noise.NewHandshakeState(*sess.noiseConfig)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Failed to create handshake state: %w", err)
+	}
+	sess.SenderIndex = generatePeerIndex()
+	if err := handshake_xx_phase0(sess); err != nil {
+		return nil, fmt.Errorf("Handshake phase 0 failed: %w", err)
+	}
+
+	if err := handshake_xx_phase2(sess); err != nil {
+		return nil, fmt.Errorf("Handshake phase 2 failed: %w", err)
 	}
 	return sess, nil
 }
@@ -97,23 +115,6 @@ type Initiator struct {
 	errorChan         chan error
 
 	peer *Session
-}
-
-func newInitiator(
-	logger Logger,
-	netConn packetNet, staticKeyPair noise.DHKey,
-	senderIndex PeerIndex, certBundle []*certificates.Certificate) *Initiator {
-	i := &Initiator{
-		netConn:           netConn,
-		logger:            logger,
-		noiseConfig:       DefaultNoiseConfig(staticKeyPair),
-		readLoopCloseChan: make(chan bool, 1),
-		errorChan:         make(chan error, 10),
-		certBundle:        certBundle,
-	}
-	i.noiseConfig.Initiator = true
-	go readLoop(i.logger, i.readLoopCloseChan, i.netConn, nil, i.handleHandshakeResponse, i.handleTransportPacket)
-	return i
 }
 
 func (i *Initiator) handleTransportPacket(pktBuf []byte, remoteAddr *net.UDPAddr) {
@@ -141,10 +142,9 @@ func (i *Initiator) handleTransportPacket(pktBuf []byte, remoteAddr *net.UDPAddr
 	i.peer.receivePacket(pktBuf, remoteAddr)
 }
 
-func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte) (*Session, error) {
+func (i *Initiator) openSession(remoteAddr *net.UDPAddr) (*Session, error) {
 	logger := i.logger.WithField("remoteAddr", remoteAddr)
 	var err error
-	i.noiseConfig.PeerStatic = remoteStaticKey
 
 	peer := newSession(i.logger, i.netConn)
 	peer.RemoteAddr = remoteAddr
@@ -160,20 +160,14 @@ func (i *Initiator) openSession(remoteAddr *net.UDPAddr, remoteStaticKey []byte)
 	logger = logger.WithField("senderIndex", peer.SenderIndex)
 	logger.Debug("Initiating session")
 
-	handshakePayload, err := marshalCBOR(&handshakeInitPayload{
-		SenderIndex:      peer.SenderIndex,
-		CertificateChain: i.certBundle,
-		Config:           &PeerConnectionConfig{},
-	})
+	initPacket := NewHandshakeInitPacket()
 
-	var out []byte
-	out, _, _, err = peer.handshakeState.WriteMessage(out, handshakePayload)
+	_, _, err = peer.handshakeState.WriteMessage(initPacket, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	handshakePkt := createHandshakeInit(peer.SenderIndex, out)
-	_, err = i.netConn.WriteTo(handshakePkt, peer.RemoteAddr)
+	_, err = i.netConn.WriteTo(initPacket.Serialize(), peer.RemoteAddr)
 	if err != nil {
 		logger.WithError(err).Error("Failed sending the handshake init message")
 		return nil, err
@@ -236,7 +230,7 @@ func (i *Initiator) handleHandshakeResponse(pktBuf []byte, remoteAddr *net.UDPAd
 	i.peer.handshakeFinishedChan <- true
 }
 
-func (i *Initiator) generatePeerIndex() PeerIndex {
+func generatePeerIndex() PeerIndex {
 	// FIXME we probably want a "cryptographical" random value here.
 	// FIXME this value must be unique
 	return PeerIndex(mathrand.Uint32())
