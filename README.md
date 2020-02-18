@@ -22,25 +22,30 @@ keys, associated data etc manually to the handshake algorithm.
 (Assumptions: Handshake messages don't need fragmentation and can be transported sufficiently reliable without ARQ...)
 * 1 byte Version
 * 1 byte PacketType
-* 4 byte Sender Index
-* Noise protocol init data....
-  * cbor array with
-    * 4 byte SenderIndex (? is this usable as ID)
-    * client certificate chain
-    * connection config data
+* 32 bytes ephemeral public key
 
 ### HandshakeResponse
 
 * 1 byte Version
 * 1 byte PacketType
-* 4 byte Sender Index
-* 4 byte Receiver Index
-* Noise protocol response data
-    * cbor array with
-        * SenderIndex
-        * ReceiverIndex
-(TODO: Replace IK handshake pattern with XX handshake pattern, which requires one more roundtrip)
-(TODO: We need the packet size as authenticated value)
+* 4 byte ReceiverIndex
+* 32 bytes server ephemeral public key
+* 2 bytes Server cert length
+* n bytes Server cert
+* 2 bytes payload length
+* n bytes payload
+
+### HandshakeFinPacket
+
+* 1 byte Version
+* 1 byte PacketType
+* 4 byte ReceiverIndex
+* 4 byte SenderIndex
+* 2 bytes Client cert length
+* n bytes Client cert
+* 2 bytes payload length
+* n bytes payload
+
 
 ### TransportPacket
 
