@@ -28,7 +28,7 @@ type ConnectionConfig struct {
 	VerifyCallback VerifyCallbackFunc
 	Payload        []byte //certificates, signs etc
 	StaticKey      noise.PrivateIdentity
-	PeerStatic     []byte
+	PeerStatic     noise.Identity
 	Padding        uint16
 }
 
@@ -107,7 +107,7 @@ func (c *Conn) ConnectionState() tls.ConnectionState {
 	data := &struct {
 		PeerPublic    []byte
 		HandshakeHash []byte
-	}{PeerPublic: c.config.PeerStatic,
+	}{PeerPublic: c.config.PeerStatic.PublicKey(),
 		HandshakeHash: c.channelBinding}
 
 	bytes, _ := json.Marshal(data)
@@ -559,58 +559,51 @@ func (c *Conn) RunClientHandshake() error {
 }
 
 func (c *Conn) RunServerHandshake() error {
-	var csOut, csIn *noise.CipherState
-	if err := c.readPacket(); err != nil {
-		return err
-	}
+	var (
+		csOut, csIn                *noise.CipherState
+		senderIndex, receiverIndex PeerIndex
+	)
 
-	hs, err := ParseNegotiationData(c.hand.Next(c.hand.Len()), c.config.StaticKey)
-
+	hs, err := noise.NewHandshakeState(noise.Config{
+		StaticKeypair: c.config.StaticKey,
+		Pattern:       noise.HandshakeXX,
+		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
+		IDMarshaler:   c,
+	})
 	if err != nil {
 		return err
 	}
+
 	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
 	}
-	payload, _, _, err := hs.ReadMessage(nil, c.hand.Next(c.hand.Len()))
+	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
+	payload, _, _, err := hs.ReadMessage(nil, hndInit)
 
 	if err != nil {
 		return err
 	}
 
-	err = c.processCallback(hs.PeerStatic(), payload)
+	// Shouldn't be possible here, we should need to receive another message to have this info
+	err = c.processCallback(hs.PeerIdentity(), payload)
 	if err != nil {
 		return err
 	}
-
+	receiverIndex = c.generarteUniquePeerIndex()
 	b := c.out.newBlock()
-
-	if b.data, csOut, csIn, err = hs.WriteMessage(b.data, pad(c.config.Payload)); err != nil {
+	hndResp := ComposeHandshakeResponse(receiverIndex)
+	if csOut, csIn, err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
 	}
-	//empty negotiation data
-	_, err = c.writePacket(nil)
-	if err != nil {
-		c.out.freeBlock(b)
-		return err
-	}
-	_, err = c.writePacket(b.data)
+	_, err = c.writePacket(hndResp.Buf)
 	c.out.freeBlock(b)
 	if err != nil {
 		return err
 	}
 
 	if csIn == nil && csOut == nil {
-
-		if err := c.readPacket(); err != nil {
-			return err
-		}
-		negotiationData = c.hand.Next(c.hand.Len())
-		if len(negotiationData) != 0 {
-			return errors.New("Not supported")
-		}
 
 		//read noise message
 		if err := c.readPacket(); err != nil {
@@ -620,7 +613,9 @@ func (c *Conn) RunServerHandshake() error {
 		inBlock := c.in.newBlock()
 		data := c.hand.Next(c.hand.Len())
 		inBlock.reserve(len(data))
-		payload, csOut, csIn, err = hs.ReadMessage(inBlock.data[:0], data)
+		hndFin := HandshakeFinFromBuf(data)
+		senderIndex = hndFin.SenderIndex()
+		payload, csOut, csIn, err = hs.ReadMessage(inBlock.data[:0], hndFin)
 
 		c.in.freeBlock(inBlock)
 
@@ -628,7 +623,8 @@ func (c *Conn) RunServerHandshake() error {
 			return err
 		}
 
-		err = c.processCallback(hs.PeerStatic(), payload)
+		// Here we should have the remotes identity
+		err = c.processCallback(hs.PeerIdentity(), payload)
 		if err != nil {
 			return err
 		}
@@ -639,9 +635,11 @@ func (c *Conn) RunServerHandshake() error {
 	}
 	c.in.cs = csOut
 	c.out.cs = csIn
+	c.in.receiverIndex, c.out.receiverIndex = receiverIndex, receiverIndex
+	c.in.senderIndex, c.out.senderIndex = senderIndex, senderIndex
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
 	c.channelBinding = hs.ChannelBinding()
-	c.config.PeerStatic = hs.PeerStatic()
+	c.config.PeerStatic = hs.PeerIdentity()
 
 	/*info := &ConnectionInfo{
 		Name: "Noise",

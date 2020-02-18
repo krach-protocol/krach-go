@@ -60,6 +60,25 @@ type HandshakeInitPacket struct {
 	Packet
 }
 
+func HandshakeInitFromBuf(b []byte) *HandshakeInitPacket {
+	return &HandshakeInitPacket{
+		Packet: Packet{
+			Buf: b,
+		},
+	}
+}
+
+func (h *HandshakeInitPacket) ReadEPublic() ([]byte, error) {
+	return h.Buf[2:34], nil
+}
+
+func (h *HandshakeInitPacket) ReadEncryptedIdentity() ([]byte, error) {
+	panic("HandshakeInit should not contain a static identity")
+}
+
+func (h *HandshakeInitPacket) ReadPayload() ([]byte, error) {
+	panic("HandshakeInit should not contain sensitive payloads")
+}
 func (h *HandshakeInitPacket) EphemeralPublicKey() [32]byte {
 	var key [32]byte
 	// TODO, see if this is necessary or if we can cast the subslice to [32]byte
@@ -101,6 +120,48 @@ func HandshakeResponseFromBuf(buf []byte) *HandshakeResponsePacket {
 			Buf: buf,
 		},
 	}
+}
+
+func ComposeHandshakeResponse(receiverIndex PeerIndex) *HandshakeResponsePacket {
+	buf := make([]byte, 40)
+	buf[0] = KrachVersion
+	buf[1] = PacketTypeHandshakeInitResponse.Byte()
+	binary.LittleEndian.PutUint32(buf[2:], receiverIndex.Uint32())
+	return &HandshakeResponsePacket{
+		Packet: Packet{
+			Buf: buf,
+		},
+	}
+}
+
+func (h *HandshakeResponsePacket) WriteEPublic(e []byte) {
+	if len(h.Buf) < 38 {
+		buf := make([]byte, 38)
+		copy(buf, h.Buf)
+		h.Buf = buf
+	}
+	copy(h.Buf[2:], e)
+}
+
+func (h *HandshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
+	if len(h.Buf) < (34 + 2 + len(s)) {
+		buf := make([]byte, 34+2+len(s))
+		copy(buf, h.Buf)
+		h.Buf = buf
+	}
+	binary.LittleEndian.PutUint16(h.Buf[38:], uint16(len(s)))
+	copy(h.Buf[40:], s)
+}
+
+func (h *HandshakeResponsePacket) WriteEncryptedPayload(p []byte) {
+	idLen := binary.LittleEndian.Uint16(h.Buf[38:])
+	if len(h.Buf) < int(34+2+int(idLen)+2+len(p)) {
+		buf := make([]byte, 34+2+int(idLen)+2+len(p))
+		copy(buf, h.Buf)
+		h.Buf = buf
+	}
+	binary.LittleEndian.PutUint16(h.Buf[40+idLen:], uint16(len(p)))
+	copy(h.Buf[42+idLen:], p)
 }
 
 func (h *HandshakeResponsePacket) ReadEPublic() ([]byte, error) {
@@ -154,6 +215,45 @@ func ComposeHandshakeFinPacket(senderIndex, receiverIndex PeerIndex) *HandshakeF
 			Buf: buf,
 		},
 	}
+}
+
+func HandshakeFinFromBuf(b []byte) *HandshakeFinPacket {
+	return &HandshakeFinPacket{
+		Packet: Packet{
+			Buf: b,
+		},
+	}
+}
+
+func (h *HandshakeFinPacket) ReadEPublic() ([]byte, error) {
+	panic("Handshake Fin should not contain an ephemeral public key")
+}
+
+func (h *HandshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
+	if len(h.Buf) < 15 {
+		return nil, fmt.Errorf("HandshakeFinPacket is too short")
+	}
+	idLen := binary.LittleEndian.Uint16(h.Buf[12:])
+	if len(h.Buf) < int(15+idLen) {
+		return nil, fmt.Errorf("HandshakeInit has invalid ID length field")
+	}
+	return h.Buf[14 : idLen+14], nil
+}
+
+func (h *HandshakeFinPacket) ReadPayload() ([]byte, error) {
+	if len(h.Buf) < 15 {
+		return nil, fmt.Errorf("HandshakeFinPacket is too short")
+	}
+	idLen := binary.LittleEndian.Uint16(h.Buf[12:])
+	if len(h.Buf) == int(15+idLen) {
+		return []byte{}, nil
+	}
+
+	payloadLen := binary.LittleEndian.Uint16(h.Buf[15+idLen:])
+	if len(h.Buf) != int(15+idLen+2+payloadLen) {
+		return nil, fmt.Errorf("HandshakeFinPacket specified invalid payload length")
+	}
+	return h.Buf[(15 + idLen + 2):], nil
 }
 
 func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
