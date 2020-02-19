@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestOverallLocalConnection(t *testing.T) {
+	testMsg := []byte("Case schloss die Augen. Fand geriffelten EIN-Schalter.")
 	serverCert, serverKey, err := smolcert.SelfSignedCertificate(
 		"krachTestServer", time.Now().Add(time.Minute*-1),
 		time.Now().Add(time.Hour), nil,
@@ -49,6 +50,12 @@ func TestOverallLocalConnection(t *testing.T) {
 		} else {
 			require.NoError(t, krachConn.Handshake())
 		}
+
+		recvBuf := make([]byte, 1024)
+		n, err := serverConn.Read(recvBuf)
+		require.NoError(t, err)
+		assert.Equal(t, len(testMsg), n)
+		assert.Equal(t, testMsg, recvBuf[:n])
 	}()
 
 	clientCert, clientKey, err := smolcert.SignedCertificate("krachTestClient",
@@ -64,6 +71,10 @@ func TestOverallLocalConnection(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, clientConn)
+
+	n, err := clientConn.Write(testMsg)
+	require.NoError(t, err)
+	assert.Equal(t, len(testMsg), n)
 
 	wg.Wait()
 
