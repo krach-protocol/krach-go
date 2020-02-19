@@ -377,14 +377,24 @@ func (c *Conn) Close() error {
 }
 
 func (c *Conn) UnmarshalIdentity(identityBytes []byte) (noise.Identity, error) {
-	return smolcert.ParseBuf(identityBytes)
+	if cert, err := smolcert.ParseBuf(identityBytes); err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal remote identity: %w", err)
+	} else {
+		return &noise.SmolIdentity{*cert}, nil
+	}
 }
 
 func (c *Conn) MarshalIdentity(identity noise.Identity) ([]byte, error) {
-	if smlcrt, ok := identity.(*smolcert.Certificate); ok {
-		return smlcrt.Bytes()
+	switch t := identity.(type) {
+	case *smolcert.Certificate:
+		return t.Bytes()
+	case *noise.SmolIdentity:
+		return t.Bytes()
+	case *noise.PrivateSmolIdentity:
+		return t.Bytes()
+	default:
+		return nil, fmt.Errorf("Unsupported identity type: %T", t)
 	}
-	return nil, fmt.Errorf("Unsupported identity type")
 }
 
 func (c *Conn) generarteUniquePeerIndex() PeerIndex {
@@ -420,20 +430,24 @@ func (c *Conn) Handshake() error {
 	// Thus handshakeCond is used to signal that a goroutine is committed
 	// to running the handshake and other goroutines can wait on it if they
 	// need. handshakeCond is protected by handshakeMutex.
+	fmt.Println("Checking if we need to run a handshake")
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
 	for {
 		if err := c.handshakeErr; err != nil {
+			fmt.Println("Got already a handshake error")
 			return err
 		}
 		if c.handshakeComplete {
+			fmt.Println("handshake already complete")
 			return nil
 		}
 		if c.handshakeCond == nil {
+			fmt.Println("Ready to perform handshale")
 			break
 		}
-
+		fmt.Println("Waiting to become ready to perform handshake")
 		c.handshakeCond.Wait()
 	}
 
@@ -476,6 +490,8 @@ func (c *Conn) RunClientHandshake() error {
 		senderIndex, receiverIndex PeerIndex
 	)
 
+	fmt.Println("[Client] Running client handshake")
+
 	state, err = noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Initiator:     true,
@@ -489,11 +505,17 @@ func (c *Conn) RunClientHandshake() error {
 		return fmt.Errorf("Failed to create client handshake state: %w", err)
 	}
 
-	msg = ComposeHandshakeInitPacket().Buf
-	if _, err = c.writePacket(msg); err != nil {
+	fmt.Println("[Client] Composing and sending handshake init")
+	hsInit := ComposeHandshakeInitPacket()
+	_, _, err = state.WriteMessage(hsInit, nil)
+	if err != nil {
+		return err
+	}
+	if _, err = c.writePacket(hsInit.Buf); err != nil {
 		return err
 	}
 
+	fmt.Println("[Client] Waiting to read handshake response packet")
 	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
@@ -504,6 +526,7 @@ func (c *Conn) RunClientHandshake() error {
 	// cannot reuse msg for read, need another buf
 	inBlock := c.in.newBlock()
 	inBlock.reserve(len(msg))
+	fmt.Println("[Client] Parsing handshake response and feeding to to handshake state")
 	hshkResp := HandshakeResponseFromBuf(msg)
 	payload, csIn, csOut, err := state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
@@ -522,17 +545,13 @@ func (c *Conn) RunClientHandshake() error {
 	senderIndex = c.generarteUniquePeerIndex()
 	if csIn == nil && csOut == nil {
 		b := c.out.newBlock()
+		fmt.Println("[Client] Composing and sending handshake fin message")
 		handshakeFinMsg := ComposeHandshakeFinPacket(senderIndex, receiverIndex)
 		if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 			c.out.freeBlock(b)
 			return err
 		}
 		b.data = handshakeFinMsg.Buf
-
-		if _, err = c.writePacket(nil); err != nil {
-			c.out.freeBlock(b)
-			return err
-		}
 
 		if _, err = c.writePacket(b.data); err != nil {
 			c.out.freeBlock(b)
@@ -543,7 +562,7 @@ func (c *Conn) RunClientHandshake() error {
 		if csIn == nil || csOut == nil {
 			panic("not supported")
 		}
-
+		fmt.Println("[Client] Client handshake finished")
 	}
 
 	c.in.cs = csOut
@@ -563,7 +582,7 @@ func (c *Conn) RunServerHandshake() error {
 		csOut, csIn                *noise.CipherState
 		senderIndex, receiverIndex PeerIndex
 	)
-
+	fmt.Println("[Server] Performing server handshake")
 	hs, err := noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Pattern:       noise.HandshakeXX,
@@ -574,10 +593,12 @@ func (c *Conn) RunServerHandshake() error {
 		return err
 	}
 
+	fmt.Println("[Server] Reading clients handshake init msg")
 	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
 	}
+	fmt.Println("[Server] Parsing clients handshake msg and feeding to handshake state")
 	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
 	payload, _, _, err := hs.ReadMessage(nil, hndInit)
 
@@ -592,6 +613,7 @@ func (c *Conn) RunServerHandshake() error {
 	}
 	receiverIndex = c.generarteUniquePeerIndex()
 	b := c.out.newBlock()
+	fmt.Println("[Server] Composing handshake response and sending it")
 	hndResp := ComposeHandshakeResponse(receiverIndex)
 	if csOut, csIn, err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
@@ -606,16 +628,18 @@ func (c *Conn) RunServerHandshake() error {
 	if csIn == nil && csOut == nil {
 
 		//read noise message
+		fmt.Println("[Server] Reading final handshake message from client")
 		if err := c.readPacket(); err != nil {
 			return err
 		}
 
+		fmt.Println("[Server] Parsing final handshake message from client")
 		inBlock := c.in.newBlock()
 		data := c.hand.Next(c.hand.Len())
 		inBlock.reserve(len(data))
 		hndFin := HandshakeFinFromBuf(data)
 		senderIndex = hndFin.SenderIndex()
-		payload, csOut, csIn, err = hs.ReadMessage(inBlock.data[:0], hndFin)
+		payload, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
 
 		c.in.freeBlock(inBlock)
 
@@ -653,6 +677,7 @@ func (c *Conn) RunServerHandshake() error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("[Server] Server handshake complete")
 
 	c.handshakeComplete = true
 	return nil

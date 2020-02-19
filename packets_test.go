@@ -50,3 +50,22 @@ func TestHandshakeResponsePacket(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, randomPayload, payload)
 }
+
+func TestHandshakeFinPacket(t *testing.T) {
+	handshakeFin := ComposeHandshakeFinPacket(PeerIndex(23), PeerIndex(42))
+	randomCertBytes := make([]byte, 127)
+	rand.Read(randomCertBytes)
+	randomPayloadBytes := make([]byte, 95)
+	rand.Read(randomPayloadBytes)
+
+	handshakeFin.WriteEncryptedIdentity(randomCertBytes)
+	handshakeFin.WriteEncryptedPayload(randomPayloadBytes)
+
+	certBytes, err := handshakeFin.ReadEncryptedIdentity()
+	require.NoError(t, err)
+	assert.EqualValues(t, randomCertBytes, certBytes)
+
+	payloadBytes, err := handshakeFin.ReadPayload()
+	require.NoError(t, err)
+	assert.EqualValues(t, randomPayloadBytes, payloadBytes)
+}

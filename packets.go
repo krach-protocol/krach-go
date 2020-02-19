@@ -53,7 +53,7 @@ func (p *Packet) ReceiverIndex() PeerIndex {
 
 // SenderIndex extracts the sender index from a packet. Might panic if called before HandshakeResponseFin
 func (p *Packet) SenderIndex() PeerIndex {
-	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[6:]))
+	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[6:10]))
 }
 
 type HandshakeInitPacket struct {
@@ -236,27 +236,43 @@ func (h *HandshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
 	if len(h.Buf) < 15 {
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[12:])
-	if len(h.Buf) < int(15+idLen) {
+	idLen := binary.LittleEndian.Uint16(h.Buf[10:])
+	if len(h.Buf) < int(12+idLen) {
 		return nil, fmt.Errorf("HandshakeInit has invalid ID length field")
 	}
-	return h.Buf[14 : idLen+14], nil
+	return h.Buf[12 : idLen+12], nil
 }
 
 func (h *HandshakeFinPacket) ReadPayload() ([]byte, error) {
 	if len(h.Buf) < 15 {
+		// Fifteen is an arbitrary number, which is simply larger than 12, because the packet including the
+		// the identity length field is 12 bytes. The identity can't be zero bytes
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[12:])
-	if len(h.Buf) == int(15+idLen) {
+	idLen := binary.LittleEndian.Uint16(h.Buf[10:12])
+	if len(h.Buf) == int(12+idLen) {
+		// We do not have any payload
 		return []byte{}, nil
 	}
 
-	payloadLen := binary.LittleEndian.Uint16(h.Buf[15+idLen:])
-	if len(h.Buf) != int(15+idLen+2+payloadLen) {
+	payloadLen := binary.LittleEndian.Uint16(h.Buf[12+idLen:])
+	if len(h.Buf) != int(12+idLen+2+payloadLen) {
 		return nil, fmt.Errorf("HandshakeFinPacket specified invalid payload length")
 	}
-	return h.Buf[(15 + idLen + 2):], nil
+	return h.Buf[(12 + idLen + 2):], nil
+}
+
+func (h *HandshakeFinPacket) WriteEncryptedPayload(p []byte) {
+	idLen := int(binary.LittleEndian.Uint16(h.Buf[10:]))
+	expectedLen := idLen + 12 + 2 + len(p)
+	if len(h.Buf) < expectedLen {
+		buf := make([]byte, expectedLen)
+		copy(buf, h.Buf)
+		h.Buf = buf
+	}
+
+	binary.LittleEndian.PutUint16(h.Buf[12+idLen:], uint16(len(p)))
+	copy(h.Buf[12+idLen+2:], p)
 }
 
 func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
@@ -265,19 +281,14 @@ func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
 
 func (h *HandshakeFinPacket) WriteEncryptedIdentity(s []byte) {
 	idLen := len(s)
-	if len(h.Buf) < 14+idLen {
+	if len(h.Buf) < 12+idLen {
 		// Resize packet buf if necessary
-		buf := make([]byte, 14+idLen)
+		buf := make([]byte, 12+idLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	binary.LittleEndian.PutUint16(h.Buf[12:], uint16(idLen))
-	copy(h.Buf[14:], s)
-}
-
-func (h *HandshakeFinPacket) WriteEncryptedPayload(p []byte) {
-	// TODO implement this, currently not needed
-	panic("Write payload is not implemented")
+	binary.LittleEndian.PutUint16(h.Buf[10:], uint16(idLen))
+	copy(h.Buf[12:], s)
 }
 
 /*type HandshakeInitPacket struct {
