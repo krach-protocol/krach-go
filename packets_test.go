@@ -1,7 +1,6 @@
 package krach
 
 import (
-	"encoding/binary"
 	"math/rand"
 	"testing"
 
@@ -23,29 +22,21 @@ func TestPacketTypes(t *testing.T) {
 }
 
 func TestHandshakeResponsePacket(t *testing.T) {
-	pktBuf := []byte{KrachVersion, PacketTypeHandshakeInitResponse.Byte()}
-	pktBuf = append(pktBuf, 0x00, 0x00, 0x00, 0x01)
+	handshakeResponse := ComposeHandshakeResponse(PeerIndex(uint32(42)))
+
 	randomBytes := make([]byte, 32)
 	rand.Read(randomBytes)
-	pktBuf = append(pktBuf, randomBytes...)
+	handshakeResponse.WriteEPublic(randomBytes)
 	randomCertBytes := make([]byte, 139)
-	certLengthBuf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(certLengthBuf, 139)
-
-	pktBuf = append(pktBuf, certLengthBuf...)
-	pktBuf = append(pktBuf, randomCertBytes...)
+	handshakeResponse.WriteEncryptedIdentity(randomCertBytes)
 
 	randomPayload := make([]byte, 92)
 	rand.Read(randomPayload)
-	payloadLengthBuf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(payloadLengthBuf, 92)
-	pktBuf = append(pktBuf, payloadLengthBuf...)
-	pktBuf = append(pktBuf, randomPayload...)
-
-	handshakeResponse := HandshakeResponseFromBuf(pktBuf)
+	handshakeResponse.WriteEncryptedPayload(randomPayload)
 
 	assert.Equal(t, KrachVersion, handshakeResponse.Version())
 	assert.Equal(t, PacketTypeHandshakeInitResponse, handshakeResponse.Type())
+	assert.Equal(t, PeerIndex(uint32(42)), handshakeResponse.ReceiverIndex())
 
 	pubKeyBytes, err := handshakeResponse.ReadEPublic()
 	require.NoError(t, err)

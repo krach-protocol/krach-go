@@ -48,7 +48,7 @@ func (p *Packet) Type() PacketType {
 
 // ReceiverIndex extracts the receiver index. Might panic during handshake if called on HandshakeInit
 func (p *Packet) ReceiverIndex() PeerIndex {
-	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[2:]))
+	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[2:6]))
 }
 
 // SenderIndex extracts the sender index from a packet. Might panic if called before HandshakeResponseFin
@@ -77,7 +77,8 @@ func (h *HandshakeInitPacket) ReadEncryptedIdentity() ([]byte, error) {
 }
 
 func (h *HandshakeInitPacket) ReadPayload() ([]byte, error) {
-	panic("HandshakeInit should not contain sensitive payloads")
+	// The initial handshale should never contain sensitive information
+	return []byte{}, nil
 }
 func (h *HandshakeInitPacket) EphemeralPublicKey() [32]byte {
 	var key [32]byte
@@ -126,7 +127,7 @@ func ComposeHandshakeResponse(receiverIndex PeerIndex) *HandshakeResponsePacket 
 	buf := make([]byte, 40)
 	buf[0] = KrachVersion
 	buf[1] = PacketTypeHandshakeInitResponse.Byte()
-	binary.LittleEndian.PutUint32(buf[2:], receiverIndex.Uint32())
+	binary.LittleEndian.PutUint32(buf[2:6], receiverIndex.Uint32())
 	return &HandshakeResponsePacket{
 		Packet: Packet{
 			Buf: buf,
@@ -140,12 +141,13 @@ func (h *HandshakeResponsePacket) WriteEPublic(e []byte) {
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	copy(h.Buf[2:], e)
+	copy(h.Buf[6:], e)
 }
 
 func (h *HandshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
-	if len(h.Buf) < (34 + 2 + len(s)) {
-		buf := make([]byte, 34+2+len(s))
+	expectedPacketLen := 38 + 2 + len(s)
+	if len(h.Buf) < expectedPacketLen {
+		buf := make([]byte, expectedPacketLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
@@ -155,8 +157,9 @@ func (h *HandshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
 
 func (h *HandshakeResponsePacket) WriteEncryptedPayload(p []byte) {
 	idLen := binary.LittleEndian.Uint16(h.Buf[38:])
-	if len(h.Buf) < int(34+2+int(idLen)+2+len(p)) {
-		buf := make([]byte, 34+2+int(idLen)+2+len(p))
+	expectedPacketLen := 38 + 2 + int(idLen) + 2 + len(p)
+	if len(h.Buf) < expectedPacketLen {
+		buf := make([]byte, expectedPacketLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
@@ -193,7 +196,7 @@ func (h *HandshakeResponsePacket) ReadPayload() ([]byte, error) {
 	}
 
 	payloadLen := binary.LittleEndian.Uint16(h.Buf[payloadLenOffset:])
-	if len(h.Buf) != int(payloadLenOffset+2+payloadLen) {
+	if len(h.Buf) != int(payloadLenOffset+payloadLen+2) {
 		return nil, fmt.Errorf("Handshake packet has invalid payload length field")
 	}
 	return h.Buf[payloadLenOffset+2:], nil
