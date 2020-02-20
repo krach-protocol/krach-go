@@ -1,6 +1,7 @@
 package krach
 
 import (
+	"crypto/ed25519"
 	"net"
 	"os"
 	"sync"
@@ -77,5 +78,67 @@ func TestOverallLocalConnection(t *testing.T) {
 	assert.Equal(t, len(testMsg), n)
 
 	wg.Wait()
+}
 
+func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, serverKey, clientKey ed25519.PrivateKey) {
+	l, err := Listen(localAddr, &ConnectionConfig{
+		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer l.Close()
+
+	var serverConn net.Conn
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		serverConn, err = l.Accept()
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer serverConn.Close()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if krachConn, ok := serverConn.(*Conn); !ok {
+			panic("We somehow got a wrong net.Conn implementation. Should never be possible")
+		} else {
+			if err := krachConn.Handshake(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}()
+
+	clientConn, err := Dial(localAddr, &ConnectionConfig{
+		StaticKey: noise.NewPrivateSmolIdentity(clientCert, clientKey),
+	})
+	err = clientConn.Handshake()
+	if err != nil {
+		b.Fatal(err)
+	}
+	clientConn.Close()
+	wg.Wait()
+}
+
+func BenchmarkKrachHandshake(b *testing.B) {
+	serverCert, serverKey, err := smolcert.SelfSignedCertificate(
+		"krachTestServer", time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil,
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	clientCert, clientKey, err := smolcert.SignedCertificate("krachTestClient",
+		2, time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil, serverKey, serverCert.Subject)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for n := 0; n < b.N; n++ {
+		runHandshake(b, serverCert, clientCert, serverKey, clientKey)
+	}
 }
