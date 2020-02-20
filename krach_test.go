@@ -3,6 +3,8 @@ package krach
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
+	"log"
 	"net"
 	"os"
 	"sync"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/connctd/noise"
+	"github.com/phayes/freeport"
 	"github.com/smolcert/smolcert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +23,11 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	localPort, err := freeport.GetFreePort()
+	if err != nil {
+		log.Fatal(err)
+	}
+	localAddr = fmt.Sprintf("[::1]:%d", localPort)
 	os.Exit(m.Run())
 }
 
