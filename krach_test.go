@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	localAddr = fmt.Sprintf("[::1]:%d", localPort)
+	localAddr = fmt.Sprintf("127.0.0.1:%d", localPort)
 	os.Exit(m.Run())
 }
 
