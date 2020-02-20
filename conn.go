@@ -430,24 +430,19 @@ func (c *Conn) Handshake() error {
 	// Thus handshakeCond is used to signal that a goroutine is committed
 	// to running the handshake and other goroutines can wait on it if they
 	// need. handshakeCond is protected by handshakeMutex.
-	fmt.Println("Checking if we need to run a handshake")
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
 	for {
 		if err := c.handshakeErr; err != nil {
-			fmt.Println("Got already a handshake error")
 			return err
 		}
 		if c.handshakeComplete {
-			fmt.Println("handshake already complete")
 			return nil
 		}
 		if c.handshakeCond == nil {
-			fmt.Println("Ready to perform handshale")
 			break
 		}
-		fmt.Println("Waiting to become ready to perform handshake")
 		c.handshakeCond.Wait()
 	}
 
