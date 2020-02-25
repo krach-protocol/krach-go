@@ -28,14 +28,19 @@ type CertPool interface {
 }
 
 type ConnectionConfig struct {
-	isClient         bool
-	VerifyCallback   VerifyCallbackFunc
-	Payload          []byte //certificates, signs etc
-	StaticKey        noise.PrivateIdentity
-	PeerStatic       noise.Identity
-	Padding          uint16
-	ReadTimeout      time.Duration
-	WriteTimeout     time.Duration
+	isClient bool
+	Payload  []byte //certificates, signs etc
+	// StaticKey is this sides identity including the ed25519.PrivateKey
+	StaticKey noise.PrivateIdentity
+	// PeerStatic is the remotes static identity (a smolcert), received during the handshake
+	PeerStatic noise.Identity
+	// Padding is the amount of bytes to pad messages with
+	Padding uint16
+	// ReadTimeout sets a deadline to every read operation
+	ReadTimeout time.Duration
+	// WriteTimeout sets a deadline to every write operation
+	WriteTimeout time.Duration
+	// HandshakeTimeout specifies the maximum duration which a handshake is allowed to take
 	HandshakeTimeout time.Duration
 }
 
@@ -553,17 +558,12 @@ func (c *Conn) RunClientHandshake() error {
 	inBlock.reserve(len(msg))
 
 	hshkResp := HandshakeResponseFromBuf(msg)
-	payload, csIn, csOut, err := state.ReadMessage(inBlock.data, hshkResp)
+	_, csIn, csOut, err = state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
 		c.in.freeBlock(inBlock)
 		return err
 	}
 
-	err = c.processCallback(state.PeerIdentity(), payload)
-	if err != nil {
-		c.in.freeBlock(inBlock)
-		return err
-	}
 	c.in.freeBlock(inBlock)
 
 	b := c.out.newBlock()
@@ -615,17 +615,12 @@ func (c *Conn) RunServerHandshake() error {
 	}
 
 	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
-	payload, _, _, err := hs.ReadMessage(nil, hndInit)
+	_, _, _, err = hs.ReadMessage(nil, hndInit)
 
 	if err != nil {
 		return err
 	}
 
-	// Shouldn't be possible here, we should need to receive another message to have this info
-	err = c.processCallback(hs.PeerIdentity(), payload)
-	if err != nil {
-		return err
-	}
 	b := c.out.newBlock()
 
 	hndResp := ComposeHandshakeResponse()
@@ -649,16 +644,10 @@ func (c *Conn) RunServerHandshake() error {
 	data := c.hand.Next(c.hand.Len())
 	inBlock.reserve(len(data))
 	hndFin := HandshakeFinFromBuf(data)
-	payload, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
+	_, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
 
 	c.in.freeBlock(inBlock)
 
-	if err != nil {
-		return err
-	}
-
-	// Here we should have the remotes identity
-	err = c.processCallback(hs.PeerIdentity(), payload)
 	if err != nil {
 		return err
 	}
@@ -693,13 +682,4 @@ func pad(payload []byte) []byte {
 	padBuf := make([]byte, 2+len(payload))
 	copy(padBuf[2:], payload)
 	return padBuf
-}
-
-func (c *Conn) processCallback(publicKey noise.Identity, payload []byte) error {
-	if c.config.VerifyCallback == nil {
-		return nil
-	}
-
-	err := c.config.VerifyCallback(publicKey, payload)
-	return err
 }
