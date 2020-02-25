@@ -389,12 +389,6 @@ func (c *Conn) MarshalIdentity(identity noise.Identity) ([]byte, error) {
 	}
 }
 
-func (c *Conn) generarteUniquePeerIndex() PeerIndex {
-	randBuf := make([]byte, 4)
-	rand.Read(randBuf)
-	return PeerIndex(binary.LittleEndian.Uint32(randBuf))
-}
-
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
 // Most uses of this package need not call Handshake
