@@ -190,12 +190,10 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 			m = int(maxPayloadSize)
 		}
 		if c.out.cs != nil {
-			////fmt.Println("writing encrypted packet:", m)
 			packet.reserve(uint16Size + uint16Size + m + macSize)
 			packet.resize(uint16Size + uint16Size + m)
 			copy(packet.data[uint16Size+uint16Size:], data[:m])
 			binary.BigEndian.PutUint16(packet.data[uint16Size:], uint16(m))
-			//fmt.Println("encrypt size", uint16(m))
 		} else {
 			packet.resize(len(packet.data) + len(data))
 			copy(packet.data[uint16Size:len(packet.data)], data[:m])
@@ -204,7 +202,6 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 
 		b := c.out.encryptIfNeeded(packet)
 		c.out.freeBlock(packet)
-		////fmt.Println(hex.EncodeToString(b))
 
 		if _, err := c.conn.Write(b); err != nil {
 			return n, err
@@ -240,7 +237,6 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	c.in.Lock()
 	defer c.in.Unlock()
 
-	//fmt.Println("Packet read request")
 	if c.rawInput != nil {
 		//fmt.Println("raw 7:", hex.EncodeToString(c.rawInput.data))
 	}
@@ -253,7 +249,7 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	if err := c.in.err; err != nil {
 		return 0, err
 	}
-	//fmt.Println("Packet read request")
+
 	n, err = c.input.Read(b)
 	if c.input.off >= len(c.input.data) {
 		c.in.freeBlock(c.input)
@@ -285,9 +281,7 @@ func (c *Conn) readPacket() error {
 		//fmt.Println("new block!")
 	}
 	b := c.rawInput
-	//fmt.Println("bytes left from previous read:", hex.EncodeToString(b.data))
 
-	//fmt.Println("reading packet length")
 	// Read header, payload.
 	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
 
@@ -296,11 +290,9 @@ func (c *Conn) readPacket() error {
 		}
 		return err
 	}
-	//fmt.Println("length bytes:", hex.EncodeToString(b.data[:2]))
 
 	n := int(binary.BigEndian.Uint16(b.data))
 
-	//fmt.Println("reading packet data, total bytes:", n)
 	if err := b.readFromUntil(c.conn, uint16Size+n); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
@@ -484,8 +476,6 @@ func (c *Conn) RunClientHandshake() error {
 		csIn, csOut *noise.CipherState
 	)
 
-	fmt.Println("[Client] Running client handshake")
-
 	state, err = noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Initiator:     true,
@@ -499,7 +489,6 @@ func (c *Conn) RunClientHandshake() error {
 		return fmt.Errorf("Failed to create client handshake state: %w", err)
 	}
 
-	fmt.Println("[Client] Composing and sending handshake init")
 	hsInit := ComposeHandshakeInitPacket()
 	_, _, err = state.WriteMessage(hsInit, nil)
 	if err != nil {
@@ -509,7 +498,6 @@ func (c *Conn) RunClientHandshake() error {
 		return err
 	}
 
-	fmt.Println("[Client] Waiting to read handshake response packet")
 	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
@@ -520,7 +508,7 @@ func (c *Conn) RunClientHandshake() error {
 	// cannot reuse msg for read, need another buf
 	inBlock := c.in.newBlock()
 	inBlock.reserve(len(msg))
-	fmt.Println("[Client] Parsing handshake response and feeding to to handshake state")
+
 	hshkResp := HandshakeResponseFromBuf(msg)
 	payload, csIn, csOut, err := state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
@@ -537,7 +525,7 @@ func (c *Conn) RunClientHandshake() error {
 
 	if csIn == nil && csOut == nil {
 		b := c.out.newBlock()
-		fmt.Println("[Client] Composing and sending handshake fin message")
+
 		handshakeFinMsg := ComposeHandshakeFinPacket()
 		if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 			c.out.freeBlock(b)
@@ -554,7 +542,6 @@ func (c *Conn) RunClientHandshake() error {
 		if csIn == nil || csOut == nil {
 			panic("not supported")
 		}
-		fmt.Println("[Client] Client handshake finished")
 	}
 
 	c.in.cs = csOut
@@ -569,7 +556,7 @@ func (c *Conn) RunServerHandshake() error {
 	var (
 		csOut, csIn *noise.CipherState
 	)
-	fmt.Println("[Server] Performing server handshake")
+
 	hs, err := noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Pattern:       noise.HandshakeXX,
@@ -580,12 +567,11 @@ func (c *Conn) RunServerHandshake() error {
 		return err
 	}
 
-	fmt.Println("[Server] Reading clients handshake init msg")
 	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
 	}
-	fmt.Println("[Server] Parsing clients handshake msg and feeding to handshake state")
+
 	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
 	payload, _, _, err := hs.ReadMessage(nil, hndInit)
 
@@ -599,7 +585,7 @@ func (c *Conn) RunServerHandshake() error {
 		return err
 	}
 	b := c.out.newBlock()
-	fmt.Println("[Server] Composing handshake response and sending it")
+
 	hndResp := ComposeHandshakeResponse()
 	if csOut, csIn, err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
@@ -614,12 +600,11 @@ func (c *Conn) RunServerHandshake() error {
 	if csIn == nil && csOut == nil {
 
 		//read noise message
-		fmt.Println("[Server] Reading final handshake message from client")
+
 		if err := c.readPacket(); err != nil {
 			return err
 		}
 
-		fmt.Println("[Server] Parsing final handshake message from client")
 		inBlock := c.in.newBlock()
 		data := c.hand.Next(c.hand.Len())
 		inBlock.reserve(len(data))
@@ -660,7 +645,6 @@ func (c *Conn) RunServerHandshake() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("[Server] Server handshake complete")
 
 	c.handshakeComplete = true
 	return nil
