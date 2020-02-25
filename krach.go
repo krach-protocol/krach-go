@@ -5,25 +5,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/ugorji/go/codec"
-)
-
-var (
-	ch = &codec.CborHandle{
-		TimeRFC3339: false,
-	}
 )
 
 const (
 	// KrachVersion is the byte representation of the currently supported wire protocol format for Krach
 	KrachVersion byte = 0x01
 )
-
-// configure the CBOR codec, so we serialize structs as arrays and have always the same byte representation of data
-func init() {
-	ch.EncodeOptions.Canonical = true
-	ch.TimeNotBuiltin = false
-}
 
 const errPrefix = "krach: "
 
