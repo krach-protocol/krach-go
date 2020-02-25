@@ -59,7 +59,7 @@ func ExampleHTTPServer() {
 		Transport: &krachTransport,
 	}
 
-	resp, err := client.Get("http://[::1]:8099/")
+	resp, err := client.Get(fmt.Sprintf("http://%s/", serverAddr))
 	if err != nil {
 		panic(err)
 	}
