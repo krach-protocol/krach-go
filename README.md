@@ -1,4 +1,4 @@
-# krach
+# krach [![CircleCI](https://circleci.com/gh/connctd/krach.svg?style=svg&circle-token=b0961925919f150e25c3148e6b8e5ba4e8ff4ab7)](https://circleci.com/gh/connctd/krach)
 
 A noise protocol based, secure protocol for the IoT. Provides multiplexing and end-to-end-security.
 
