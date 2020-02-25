@@ -2,7 +2,6 @@ package krach
 
 import (
 	"net"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -24,7 +23,7 @@ const (
 	AuthTagLen        = 16   // Length of the AuthenticationTag in bytes
 )
 
-// PeerIndex represents the 32 bit index each peer assigns to a session for identification independent
+// PeerIndex (unused) represents the 32 bit index each peer assigns to a session for identification independent
 // from IP address and port
 type PeerIndex uint32
 
@@ -32,12 +31,6 @@ type PeerIndex uint32
 func (p PeerIndex) Uint32() uint32 {
 	return uint32(p)
 }
-
-var (
-	// DefaultTimeout how long we wait when polling the UDP socket. Essentially this controls
-	// how quick we can react to state changes like closing a connection
-	DefaultTimeout = time.Second * 15
-)
 
 var (
 	// A timeout error which should be similar enough to the timeout error used in the net package.
