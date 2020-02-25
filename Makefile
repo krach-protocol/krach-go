@@ -7,10 +7,13 @@ GO_BUILD_ENV_TEST_VARS			?= GO111MODULE=on
 
 GO_TEST 				?= $(GO_BUILD_ENV_TEST_VARS) go test -v -covermode=atomic -coverprofile=single.coverprofile # Disable -race for now
 
-.PHONY: test clean
+.PHONY: test clean benchmark
 
 clean:
 	rm -f *.coverprofile
+
+benchmark:
+	$(GO_BUILD_ENV_TEST_VARS) go test -v -benchmem -bench=.
 
 test:
 	$(GO_TEST)
