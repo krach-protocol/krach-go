@@ -12,7 +12,7 @@ import (
 )
 
 func ExampleHTTPServer() {
-	serverAddr := "[::1]:8099"
+	serverAddr := "127.0.0.1:8099"
 	rootCert, rootKey, err := smolcert.SelfSignedCertificate("example root CA",
 		time.Time{}, time.Time{}, nil)
 	if err != nil {
@@ -28,6 +28,9 @@ func ExampleHTTPServer() {
 	l, err := Listen(serverAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
 	}, smolcert.NewCertPool(rootCert))
+	if err != nil {
+		panic(err)
+	}
 
 	doneChan := make(chan struct{}, 1)
 	go func() {
