@@ -35,8 +35,8 @@ func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
 			panic("data is too big to be sent")
 		}
 
-		block.data = h.cs.Encrypt(block.data[:uint16Size], nil, block.data[uint16Size:])
 		binary.BigEndian.PutUint16(block.data, uint16(payloadSize))
+		block.data = h.cs.Encrypt(block.data[:uint16Size], block.data[:uint16Size], block.data[uint16Size:])
 
 		return block.data
 	}
@@ -65,7 +65,7 @@ func (h *halfConn) decryptIfNeeded(b *buffer) (off, length int, err error) {
 	}
 
 	if h.cs != nil {
-		payload, err = h.cs.Decrypt(payload[:0], nil, payload)
+		payload, err = h.cs.Decrypt(payload[:0], b.data[:uint16Size], payload)
 		if err != nil {
 			return 0, 0, err
 		}
