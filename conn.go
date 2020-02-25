@@ -28,14 +28,15 @@ type CertPool interface {
 }
 
 type ConnectionConfig struct {
-	isClient       bool
-	VerifyCallback VerifyCallbackFunc
-	Payload        []byte //certificates, signs etc
-	StaticKey      noise.PrivateIdentity
-	PeerStatic     noise.Identity
-	Padding        uint16
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
+	isClient         bool
+	VerifyCallback   VerifyCallbackFunc
+	Payload          []byte //certificates, signs etc
+	StaticKey        noise.PrivateIdentity
+	PeerStatic       noise.Identity
+	Padding          uint16
+	ReadTimeout      time.Duration
+	WriteTimeout     time.Duration
+	HandshakeTimeout time.Duration
 }
 
 type ConnectionInfo struct {
@@ -472,15 +473,32 @@ func (c *Conn) Handshake() error {
 
 	c.handshakeMutex.Lock()
 
+	hasTimeout := c.config.HandshakeTimeout.Nanoseconds() > 0
+
+	doneChan := make(chan struct{}, 1)
+	var timeoutChan <-chan time.Time
+	if hasTimeout {
+		timeoutChan = time.After(c.config.HandshakeTimeout)
+	}
+
 	if c.config.isClient {
 		c.handshakeErr = c.RunClientHandshake()
+		doneChan <- struct{}{}
 	} else {
 		c.handshakeErr = c.RunServerHandshake()
+		doneChan <- struct{}{}
 		if c.handshakeErr != nil {
 			//fmt.Println(c.handshakeErr)
 			//send plaintext error to client for debug
 			c.writePacket([]byte{0xFF}) //don't care about result
 		}
+	}
+
+	select {
+	case <-doneChan:
+		break
+	case <-timeoutChan:
+		c.handshakeErr = fmt.Errorf("Handshake timed out")
 	}
 
 	// Wake any other goroutines that are waiting for this handshake to
