@@ -34,9 +34,9 @@ func (p PeerIndex) Uint32() uint32 {
 }
 
 var (
-	// DefaultReadDeadline how long we wait when polling the UDP socket. Essentially this controls
+	// DefaultTimeout how long we wait when polling the UDP socket. Essentially this controls
 	// how quick we can react to state changes like closing a connection
-	DefaultReadDeadline = time.Second * 15
+	DefaultTimeout = time.Second * 15
 )
 
 var (
@@ -55,10 +55,10 @@ type listener struct {
 // The returned connection is of type *Conn.
 func (l *listener) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
-
 	if err != nil {
 		return nil, err
 	}
+
 	return &Conn{
 		conn:     c,
 		config:   *l.config,
@@ -74,6 +74,7 @@ func Listen(laddr string, config *ConnectionConfig, certPool CertPool) (net.List
 	if err != nil {
 		return nil, err
 	}
+
 	return &listener{
 		Listener: l,
 		config:   config,
@@ -88,6 +89,7 @@ func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, erro
 	}
 
 	config.isClient = true
+
 	return &Conn{
 		conn:     rawConn,
 		config:   *config,

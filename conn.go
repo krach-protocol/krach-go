@@ -34,6 +34,8 @@ type ConnectionConfig struct {
 	StaticKey      noise.PrivateIdentity
 	PeerStatic     noise.Identity
 	Padding        uint16
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
 }
 
 type ConnectionInfo struct {
@@ -180,6 +182,9 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 	var n int
 
 	if len(data) == 0 { //special case to answer when everything is ok during handshake
+		if c.config.WriteTimeout.Nanoseconds() > 0 {
+			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+		}
 		if _, err := c.conn.Write(make([]byte, 2)); err != nil {
 			return 0, err
 		}
@@ -209,6 +214,9 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 		b := c.out.encryptIfNeeded(packet)
 		c.out.freeBlock(packet)
 
+		if c.config.WriteTimeout.Nanoseconds() > 0 {
+			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+		}
 		if _, err := c.conn.Write(b); err != nil {
 			return n, err
 		}
@@ -288,7 +296,9 @@ func (c *Conn) readPacket() error {
 	}
 	b := c.rawInput
 
-	// Read header, payload.
+	if c.config.ReadTimeout.Nanoseconds() > 0 {
+		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+	}
 	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
 
 		if e, ok := err.(net.Error); !ok || !e.Temporary() {
@@ -299,6 +309,9 @@ func (c *Conn) readPacket() error {
 
 	n := int(binary.BigEndian.Uint16(b.data))
 
+	if c.config.ReadTimeout.Nanoseconds() > 0 {
+		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+	}
 	if err := b.readFromUntil(c.conn, uint16Size+n); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
