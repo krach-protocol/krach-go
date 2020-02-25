@@ -548,25 +548,23 @@ func (c *Conn) RunClientHandshake() error {
 	}
 	c.in.freeBlock(inBlock)
 
-	if csIn == nil && csOut == nil {
-		b := c.out.newBlock()
+	b := c.out.newBlock()
 
-		handshakeFinMsg := ComposeHandshakeFinPacket()
-		if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
-			c.out.freeBlock(b)
-			return err
-		}
-		b.data = handshakeFinMsg.Buf
-
-		if _, err = c.writePacket(b.data); err != nil {
-			c.out.freeBlock(b)
-			return err
-		}
+	handshakeFinMsg := ComposeHandshakeFinPacket()
+	if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
+		return err
+	}
+	b.data = handshakeFinMsg.Buf
 
-		if csIn == nil || csOut == nil {
-			panic("not supported")
-		}
+	if _, err = c.writePacket(b.data); err != nil {
+		c.out.freeBlock(b)
+		return err
+	}
+	c.out.freeBlock(b)
+
+	if csIn == nil || csOut == nil {
+		panic("not supported")
 	}
 
 	c.in.cs = csOut
@@ -623,36 +621,34 @@ func (c *Conn) RunServerHandshake() error {
 		return err
 	}
 
-	if csIn == nil && csOut == nil {
+	//read noise message
 
-		//read noise message
-
-		if err := c.readPacket(); err != nil {
-			return err
-		}
-
-		inBlock := c.in.newBlock()
-		data := c.hand.Next(c.hand.Len())
-		inBlock.reserve(len(data))
-		hndFin := HandshakeFinFromBuf(data)
-		payload, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
-
-		c.in.freeBlock(inBlock)
-
-		if err != nil {
-			return err
-		}
-
-		// Here we should have the remotes identity
-		err = c.processCallback(hs.PeerIdentity(), payload)
-		if err != nil {
-			return err
-		}
-
-		if csIn == nil || csOut == nil {
-			return errors.New("Not supported")
-		}
+	if err := c.readPacket(); err != nil {
+		return err
 	}
+
+	inBlock := c.in.newBlock()
+	data := c.hand.Next(c.hand.Len())
+	inBlock.reserve(len(data))
+	hndFin := HandshakeFinFromBuf(data)
+	payload, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
+
+	c.in.freeBlock(inBlock)
+
+	if err != nil {
+		return err
+	}
+
+	// Here we should have the remotes identity
+	err = c.processCallback(hs.PeerIdentity(), payload)
+	if err != nil {
+		return err
+	}
+
+	if csIn == nil || csOut == nil {
+		return errors.New("Not supported")
+	}
+
 	c.in.cs = csOut
 	c.out.cs = csIn
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
