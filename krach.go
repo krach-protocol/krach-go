@@ -36,7 +36,7 @@ func (p PeerIndex) Uint32() uint32 {
 var (
 	// DefaultReadDeadline how long we wait when polling the UDP socket. Essentially this controls
 	// how quick we can react to state changes like closing a connection
-	DefaultReadDeadline = time.Second * 5
+	DefaultReadDeadline = time.Second * 15
 )
 
 var (
@@ -47,25 +47,28 @@ var (
 // A listener implements a network listener (net.Listener) for TLS connections.
 type listener struct {
 	net.Listener
-	config *ConnectionConfig
+	certPool CertPool
+	config   *ConnectionConfig
 }
 
 // Accept waits for and returns the next incoming connection.
 // The returned connection is of type *Conn.
 func (l *listener) Accept() (net.Conn, error) {
 	c, err := l.Listener.Accept()
+
 	if err != nil {
 		return nil, err
 	}
 	return &Conn{
-		conn:   c,
-		config: *l.config,
+		conn:     c,
+		config:   *l.config,
+		certPool: l.certPool,
 	}, nil
 }
 
 // Listen creates a TLS listener accepting connections on the
 // given network address using net.Listen.
-func Listen(laddr string, config *ConnectionConfig) (net.Listener, error) {
+func Listen(laddr string, config *ConnectionConfig, certPool CertPool) (net.Listener, error) {
 
 	l, err := net.Listen("tcp", laddr)
 	if err != nil {
@@ -74,10 +77,11 @@ func Listen(laddr string, config *ConnectionConfig) (net.Listener, error) {
 	return &listener{
 		Listener: l,
 		config:   config,
+		certPool: certPool,
 	}, nil
 }
 
-func Dial(addr string, config *ConnectionConfig) (*Conn, error) {
+func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, error) {
 	rawConn, err := new(net.Dialer).Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -85,7 +89,8 @@ func Dial(addr string, config *ConnectionConfig) (*Conn, error) {
 
 	config.isClient = true
 	return &Conn{
-		conn:   rawConn,
-		config: *config,
+		conn:     rawConn,
+		config:   *config,
+		certPool: certPool,
 	}, nil
 }

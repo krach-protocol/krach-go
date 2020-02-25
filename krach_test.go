@@ -20,6 +20,9 @@ import (
 
 var (
 	localAddr = "[::1]:58123"
+
+	rootCert *smolcert.Certificate
+	rootKey  ed25519.PrivateKey
 )
 
 func TestMain(m *testing.M) {
@@ -28,20 +31,25 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 	localAddr = fmt.Sprintf("127.0.0.1:%d", localPort)
+
+	rootCert, rootKey, err = smolcert.SelfSignedCertificate("testRoot", time.Time{}, time.Time{}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 	os.Exit(m.Run())
 }
 
 func TestOverallLocalConnection(t *testing.T) {
 	testMsg := []byte("Case schloss die Augen. Fand den geriffelten EIN-Schalter.")
-	serverCert, serverKey, err := smolcert.SelfSignedCertificate(
-		"krachTestServer", time.Now().Add(time.Minute*-1),
-		time.Now().Add(time.Hour), nil,
+	serverCert, serverKey, err := smolcert.SignedCertificate(
+		"krachTestServer", 2, time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject,
 	)
 	require.NoError(t, err)
 
 	l, err := Listen(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	require.NoError(t, err)
 	require.NotEmpty(t, l)
 	defer l.Close()
@@ -72,12 +80,12 @@ func TestOverallLocalConnection(t *testing.T) {
 
 	clientCert, clientKey, err := smolcert.SignedCertificate("krachTestClient",
 		2, time.Now().Add(time.Minute*-1),
-		time.Now().Add(time.Hour), nil, serverKey, serverCert.Subject)
+		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject)
 	require.NoError(t, err)
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(clientCert, clientKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	err = clientConn.Handshake()
 	require.NoError(t, err)
 	defer clientConn.Close()
@@ -95,7 +103,7 @@ func TestOverallLocalConnection(t *testing.T) {
 func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, serverKey, clientKey ed25519.PrivateKey) {
 	l, err := Listen(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -108,24 +116,23 @@ func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, se
 		defer wg.Done()
 		serverConn, err = l.Accept()
 		if err != nil {
-			b.Fatal(err)
+			b.Log(err)
+			return
 		}
 		defer serverConn.Close()
-		if err != nil {
-			b.Fatal(err)
-		}
+
 		if krachConn, ok := serverConn.(*Conn); !ok {
 			panic("We somehow got a wrong net.Conn implementation. Should never be possible")
 		} else {
 			if err := krachConn.Handshake(); err != nil {
-				b.Fatal(err)
+				b.Log(err)
 			}
 		}
 	}()
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(clientCert, clientKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	err = clientConn.Handshake()
 	if err != nil {
 		b.Fatal(err)
@@ -135,17 +142,17 @@ func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, se
 }
 
 func BenchmarkKrachHandshake(b *testing.B) {
-	serverCert, serverKey, err := smolcert.SelfSignedCertificate(
-		"krachTestServer", time.Now().Add(time.Minute*-1),
-		time.Now().Add(time.Hour), nil,
+	serverCert, serverKey, err := smolcert.SignedCertificate(
+		"krachTestServer", 3, time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject,
 	)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	clientCert, clientKey, err := smolcert.SignedCertificate("krachTestClient",
-		2, time.Now().Add(time.Minute*-1),
-		time.Now().Add(time.Hour), nil, serverKey, serverCert.Subject)
+		4, time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -187,15 +194,15 @@ func BenchmarkThroughput(b *testing.B) {
 	rand.Reader.Read(testMsg)
 	msgCount := 1024
 
-	serverCert, serverKey, err := smolcert.SelfSignedCertificate(
-		"krachTestServer", time.Now().Add(time.Minute*-1),
-		time.Now().Add(time.Hour), nil,
+	serverCert, serverKey, err := smolcert.SignedCertificate(
+		"krachTestServer", 5, time.Now().Add(time.Minute*-1),
+		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject,
 	)
 	require.NoError(b, err)
 
 	l, err := Listen(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	require.NoError(b, err)
 	require.NotEmpty(b, l)
 	defer l.Close()
@@ -209,13 +216,17 @@ func BenchmarkThroughput(b *testing.B) {
 	go func() {
 		defer wg.Done()
 		serverConn, err = l.Accept()
-		require.NoError(b, err)
-		assert.NotEmpty(b, serverConn)
-		if krachConn, ok := serverConn.(*Conn); !ok {
-			b.Fatalf("We somehow got a wrong net.Conn implementation. Should never be possible")
+		if err != nil {
+			b.Log(err)
 			return
+		}
+		assert.NotEmpty(b, serverConn)
+		if krachConn, ok := serverConn.(*Conn); ok {
+			if err := krachConn.Handshake(); err != nil {
+				b.Logf("Server side handshake failed: %s", err)
+			}
 		} else {
-			require.NoError(b, krachConn.Handshake())
+			b.Logf("We somehow got a wrong net.Conn implementation. Should never be possible")
 		}
 	}()
 
@@ -226,7 +237,7 @@ func BenchmarkThroughput(b *testing.B) {
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
 		StaticKey: noise.NewPrivateSmolIdentity(clientCert, clientKey),
-	})
+	}, smolcert.NewCertPool(rootCert))
 	err = clientConn.Handshake()
 	require.NoError(b, err)
 	defer clientConn.Close()

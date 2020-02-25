@@ -23,6 +23,10 @@ const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*
 
 type VerifyCallbackFunc func(publicKey noise.Identity, data []byte) error
 
+type CertPool interface {
+	Validate(cert *smolcert.Certificate) error
+}
+
 type ConnectionConfig struct {
 	isClient       bool
 	VerifyCallback VerifyCallbackFunc
@@ -66,6 +70,8 @@ type Conn struct {
 	connectionInfo []byte
 	HandshakeData  []byte
 	config         ConnectionConfig
+
+	certPool CertPool
 }
 
 // Access to net.Conn methods.
@@ -389,6 +395,17 @@ func (c *Conn) MarshalIdentity(identity noise.Identity) ([]byte, error) {
 	}
 }
 
+func (c *Conn) VerifyIdentity(id noise.Identity) error {
+	switch t := id.(type) {
+	case *smolcert.Certificate:
+		return c.certPool.Validate(t)
+	case *noise.SmolIdentity:
+		return c.certPool.Validate(t.Cert())
+	default:
+		return fmt.Errorf("Invalid identity type %T, unable to verify", t)
+	}
+}
+
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
 // Most uses of this package need not call Handshake
@@ -477,7 +494,8 @@ func (c *Conn) RunClientHandshake() error {
 		IDMarshaler:   c,
 		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
 		// TODO check if prologue increaes security and this increases is worth the additional bytes
-		Random: rand.Reader,
+		Random:     rand.Reader,
+		IDVerifier: c,
 	})
 	if err != nil {
 		return fmt.Errorf("Failed to create client handshake state: %w", err)
@@ -556,6 +574,7 @@ func (c *Conn) RunServerHandshake() error {
 		Pattern:       noise.HandshakeXX,
 		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
 		IDMarshaler:   c,
+		IDVerifier:    c,
 	})
 	if err != nil {
 		return err
