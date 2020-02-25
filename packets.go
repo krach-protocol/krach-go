@@ -46,16 +46,6 @@ func (p *Packet) Type() PacketType {
 	return PacketType(p.Buf[1])
 }
 
-// ReceiverIndex extracts the receiver index. Might panic during handshake if called on HandshakeInit
-func (p *Packet) ReceiverIndex() PeerIndex {
-	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[2:6]))
-}
-
-// SenderIndex extracts the sender index from a packet. Might panic if called before HandshakeResponseFin
-func (p *Packet) SenderIndex() PeerIndex {
-	return PeerIndex(binary.LittleEndian.Uint32(p.Buf[6:10]))
-}
-
 type HandshakeInitPacket struct {
 	Packet
 }
@@ -123,11 +113,10 @@ func HandshakeResponseFromBuf(buf []byte) *HandshakeResponsePacket {
 	}
 }
 
-func ComposeHandshakeResponse(receiverIndex PeerIndex) *HandshakeResponsePacket {
-	buf := make([]byte, 40)
+func ComposeHandshakeResponse() *HandshakeResponsePacket {
+	buf := make([]byte, 34)
 	buf[0] = KrachVersion
 	buf[1] = PacketTypeHandshakeInitResponse.Byte()
-	binary.LittleEndian.PutUint32(buf[2:6], receiverIndex.Uint32())
 	return &HandshakeResponsePacket{
 		Packet: Packet{
 			Buf: buf,
@@ -136,58 +125,59 @@ func ComposeHandshakeResponse(receiverIndex PeerIndex) *HandshakeResponsePacket 
 }
 
 func (h *HandshakeResponsePacket) WriteEPublic(e []byte) {
-	if len(h.Buf) < 38 {
-		buf := make([]byte, 38)
+	if len(h.Buf) < 34 {
+		buf := make([]byte, 34)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	copy(h.Buf[6:], e)
+	copy(h.Buf[2:], e)
 }
 
 func (h *HandshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
-	expectedPacketLen := 38 + 2 + len(s)
+	expectedPacketLen := 34 + 2 + len(s)
 	if len(h.Buf) < expectedPacketLen {
 		buf := make([]byte, expectedPacketLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	binary.LittleEndian.PutUint16(h.Buf[38:], uint16(len(s)))
-	copy(h.Buf[40:], s)
+	binary.LittleEndian.PutUint16(h.Buf[34:], uint16(len(s)))
+	copy(h.Buf[36:], s)
 }
 
 func (h *HandshakeResponsePacket) WriteEncryptedPayload(p []byte) {
-	idLen := binary.LittleEndian.Uint16(h.Buf[38:])
-	expectedPacketLen := 38 + 2 + int(idLen) + 2 + len(p)
+	idLen := binary.LittleEndian.Uint16(h.Buf[34:])
+	expectedPacketLen := 34 + 2 + int(idLen) + 2 + len(p)
 	if len(h.Buf) < expectedPacketLen {
 		buf := make([]byte, expectedPacketLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	binary.LittleEndian.PutUint16(h.Buf[40+idLen:], uint16(len(p)))
-	copy(h.Buf[42+idLen:], p)
+	binary.LittleEndian.PutUint16(h.Buf[36+idLen:], uint16(len(p)))
+	copy(h.Buf[38+idLen:], p)
 }
 
 func (h *HandshakeResponsePacket) ReadEPublic() ([]byte, error) {
-	if len(h.Buf) < 38 {
+	if len(h.Buf) < 34 {
 		return nil, fmt.Errorf("HandshakeResponse packet is too small. Expected at least 38 bytes, got %d", len(h.Buf))
 	}
-	return h.Buf[6:38], nil
+	return h.Buf[2:34], nil
 }
 
 func (h *HandshakeResponsePacket) ReadEncryptedIdentity() ([]byte, error) {
-	certLen := binary.LittleEndian.Uint16(h.Buf[38:])
-	if len(h.Buf) < int(40+certLen) {
+	certLen := binary.LittleEndian.Uint16(h.Buf[34:])
+	if len(h.Buf) < int(34+2+certLen) {
 		return nil, fmt.Errorf("Invalid certificate length specifier. Bytes in packet are shorter than expected Packet length")
 	}
-	return h.Buf[40 : 40+certLen], nil
+	return h.Buf[36 : 36+certLen], nil
 }
 
 func (h *HandshakeResponsePacket) ReadPayload() ([]byte, error) {
-	certLen := binary.LittleEndian.Uint16(h.Buf[38:])
-	payloadLenOffset := 40 + certLen
+	certLen := binary.LittleEndian.Uint16(h.Buf[34:])
+	payloadLenOffset := 34 + 2 + certLen
 	// Check if we have a payload at all
-	if len(h.Buf) <= int(payloadLenOffset) {
+	if len(h.Buf) < int(payloadLenOffset) {
 		// Seems not payload is specified
+
 		return []byte{}, nil
 	}
 
@@ -197,7 +187,7 @@ func (h *HandshakeResponsePacket) ReadPayload() ([]byte, error) {
 
 	payloadLen := binary.LittleEndian.Uint16(h.Buf[payloadLenOffset:])
 	if len(h.Buf) != int(payloadLenOffset+payloadLen+2) {
-		return nil, fmt.Errorf("Handshake packet has invalid payload length field")
+		return nil, fmt.Errorf("Handshake response packet has invalid payload length field")
 	}
 	return h.Buf[payloadLenOffset+2:], nil
 }
@@ -206,12 +196,10 @@ type HandshakeFinPacket struct {
 	Packet
 }
 
-func ComposeHandshakeFinPacket(senderIndex, receiverIndex PeerIndex) *HandshakeFinPacket {
-	buf := make([]byte, 14)
+func ComposeHandshakeFinPacket() *HandshakeFinPacket {
+	buf := make([]byte, 6)
 	buf[0] = KrachVersion
 	buf[1] = PacketTypeHandshakeFin.Byte()
-	binary.LittleEndian.PutUint32(buf[2:], receiverIndex.Uint32())
-	binary.LittleEndian.PutUint32(buf[6:], senderIndex.Uint32())
 
 	return &HandshakeFinPacket{
 		Packet: Packet{
@@ -236,11 +224,11 @@ func (h *HandshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
 	if len(h.Buf) < 15 {
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[10:])
-	if len(h.Buf) < int(12+idLen) {
+	idLen := binary.LittleEndian.Uint16(h.Buf[2:])
+	if len(h.Buf) < int(4+idLen) {
 		return nil, fmt.Errorf("HandshakeInit has invalid ID length field")
 	}
-	return h.Buf[12 : idLen+12], nil
+	return h.Buf[4 : idLen+4], nil
 }
 
 func (h *HandshakeFinPacket) ReadPayload() ([]byte, error) {
@@ -249,30 +237,30 @@ func (h *HandshakeFinPacket) ReadPayload() ([]byte, error) {
 		// the identity length field is 12 bytes. The identity can't be zero bytes
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[10:12])
-	if len(h.Buf) == int(12+idLen) {
+	idLen := binary.LittleEndian.Uint16(h.Buf[2:4])
+	if len(h.Buf) == int(4+idLen) {
 		// We do not have any payload
 		return []byte{}, nil
 	}
 
-	payloadLen := binary.LittleEndian.Uint16(h.Buf[12+idLen:])
-	if len(h.Buf) != int(12+idLen+2+payloadLen) {
+	payloadLen := binary.LittleEndian.Uint16(h.Buf[4+idLen:])
+	if len(h.Buf) != int(4+idLen+2+payloadLen) {
 		return nil, fmt.Errorf("HandshakeFinPacket specified invalid payload length")
 	}
-	return h.Buf[(12 + idLen + 2):], nil
+	return h.Buf[(4 + idLen + 2):], nil
 }
 
 func (h *HandshakeFinPacket) WriteEncryptedPayload(p []byte) {
-	idLen := int(binary.LittleEndian.Uint16(h.Buf[10:]))
-	expectedLen := idLen + 12 + 2 + len(p)
+	idLen := int(binary.LittleEndian.Uint16(h.Buf[2:]))
+	expectedLen := idLen + 4 + 2 + len(p)
 	if len(h.Buf) < expectedLen {
 		buf := make([]byte, expectedLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
 
-	binary.LittleEndian.PutUint16(h.Buf[12+idLen:], uint16(len(p)))
-	copy(h.Buf[12+idLen+2:], p)
+	binary.LittleEndian.PutUint16(h.Buf[4+idLen:], uint16(len(p)))
+	copy(h.Buf[4+idLen+2:], p)
 }
 
 func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
@@ -281,141 +269,12 @@ func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
 
 func (h *HandshakeFinPacket) WriteEncryptedIdentity(s []byte) {
 	idLen := len(s)
-	if len(h.Buf) < 12+idLen {
+	if len(h.Buf) < 4+idLen {
 		// Resize packet buf if necessary
-		buf := make([]byte, 12+idLen)
+		buf := make([]byte, 4+idLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	binary.LittleEndian.PutUint16(h.Buf[10:], uint16(idLen))
-	copy(h.Buf[12:], s)
+	binary.LittleEndian.PutUint16(h.Buf[2:], uint16(idLen))
+	copy(h.Buf[4:], s)
 }
-
-/*type HandshakeInitPacket struct {
-	Packet
-	EphemeralPublicKey [32]byte
-}
-
-func (h *HandshakeInitPacket) WriteEPublic(e []byte) {
-	copy(h.EphemeralPublicKey[:], e)
-}
-func (h *HandshakeInitPacket) WriteEncryptedSPublic(s []byte) {
-	// Not supported here, probably a design problem
-}
-func (h *HandshakeInitPacket) WriteEncryptedPayload(p []byte) {
-	h.EncryptedPayload = make([]byte, len(p))
-	copy(h.EncryptedPayload, p)
-}
-
-func (h *HandshakeInitPacket) Serialize() []byte {
-	buf := make([]byte, 2+len(h.EphemeralPublicKey)+len(h.EncryptedPayload))
-	buf[0] = h.Version
-	buf[1] = h.Type.Byte()
-	copy(buf[2:], h.EphemeralPublicKey[:])
-	copy(buf[2+len(h.EphemeralPublicKey):], h.EncryptedPayload)
-	return buf
-}
-
-func NewHandshakeInitPacket() *HandshakeInitPacket {
-	p := &HandshakeInitPacket{}
-	p.Version = KrachVersion
-	p.Type = PacketTypeHandshakeInit
-	return p
-}*/
-
-/*type HandshakeInitResponsePacket struct {
-	Packet
-	// Should be AD
-	SenderIndex        PeerIndex
-	EphemeralPublicKey [32]byte
-	// Should be encrypted
-	Identity *certificates.Certificate
-}
-
-func (h *HandshakeInitResponsePacket) WriteEPublic(e []byte) {
-	copy(h.EphemeralPublicKey[:], e)
-}
-func (h *HandshakeInitResponsePacket) WriteEncryptedSPublic(s []byte) {
-	// Skip. The public key should be contained in the Identity
-}
-func (h *HandshakeInitResponsePacket) WriteEncryptedPayload(p []byte) {
-	h.EncryptedPayload = make([]byte, len(p))
-	copy(h.EncryptedPayload, p)
-}
-
-func ParseHandshakeInitResponsePacket(pktBuf []byte) (*HandshakeInitResponsePacket, error) {
-	version, err := extractVersion(pktBuf)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse Handshake Init Response: %w", err)
-	}
-	if !isVersionSupported(version) {
-		return nil, fmt.Errorf("Unsupported krach version. Supported version is %d, but we got %d", KrachVersion, version)
-	}
-	pktType, err := extractPacketType(pktBuf)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse Handshake Init Response: %w", err)
-	}
-	if pktType != PacketTypeHandshakeInitResponse {
-		return nil, fmt.Errorf("Invalid packet type. Expected HandshakeInitResponse (%X), got %X", PacketTypeHandshakeInitResponse.Byte(), pktType.Byte())
-	}
-
-	senderIndex, err := extractSenderIndex(pktBuf)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to extract sender index from HandshakeInitResponse: %w")
-	}
-
-	// We expect at least 32 more bytes after the SenderIndex to have a valid ephemeral public key
-	if len(pktBuf) < SenderIndexEndOffset+1+32 {
-		return nil, fmt.Errorf("HandshakeInitResponse packet too short to contain ephemeral public key")
-	}
-	ephPubBytes := pktBuf[SenderIndexEndOffset+1 : SenderIndexEndOffset+1+32]
-	var ephPubKey [32]byte
-	copy(ephPubKey[:], ephPubBytes)
-	var payload []byte
-	if len(pktBuf) > SenderIndexEndOffset+1+32 {
-		payloadLength := len(pktBuf) - SenderIndexEndOffset + 1 + 32
-		payload = make([]byte, payloadLength)
-		copy(payload, pktBuf[SenderIndexEndOffset+1+32:])
-	}
-
-	pkt := &HandshakeInitResponsePacket{
-		Packet{
-			Version:          version,
-			Type:             pktType,
-			EncryptedPayload: payload,
-		},
-		senderIndex,
-		ephPubKey,
-		// Payload is not encrypted here, therefore we can't extract identities
-		nil,
-	}
-	return pkt, nil
-}
-
-type HandshakeInitiatorPayload struct {
-	CertificateChain []*certificates.Certificate
-	Config           *PeerConnectionConfig
-}
-
-type HandshakeFinPacket struct {
-	Packet
-	// Needs to be AD
-	SenderIndex   PeerIndex
-	ReceiverIndex PeerIndex
-	// Encrypted parts
-	Payload *HandshakeInitiatorPayload
-}
-
-func extractVersion(pktBuf []byte) (uint8, error) {
-	if len(pktBuf) < ProtocolVersionOffset+1 {
-		return 0, fmt.Errorf("Packet too short to contain protocol version")
-	}
-	return uint8(pktBuf[ProtocolVersionOffset]), nil
-}
-
-func extractPacketType(pktBuf []byte) (PacketType, error) {
-	if len(pktBuf) < PacketTypeOffset+1 {
-		return PacketTypeInvalid, fmt.Errorf("Packet too short to contain packet type")
-	}
-	return PacketType(pktBuf[PacketTypeOffset]), nil
-}*/

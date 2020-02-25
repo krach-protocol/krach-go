@@ -22,12 +22,13 @@ func TestPacketTypes(t *testing.T) {
 }
 
 func TestHandshakeResponsePacket(t *testing.T) {
-	handshakeResponse := ComposeHandshakeResponse(PeerIndex(uint32(42)))
+	handshakeResponse := ComposeHandshakeResponse()
 
 	randomBytes := make([]byte, 32)
 	rand.Read(randomBytes)
 	handshakeResponse.WriteEPublic(randomBytes)
 	randomCertBytes := make([]byte, 139)
+	rand.Read(randomCertBytes)
 	handshakeResponse.WriteEncryptedIdentity(randomCertBytes)
 
 	randomPayload := make([]byte, 92)
@@ -36,7 +37,6 @@ func TestHandshakeResponsePacket(t *testing.T) {
 
 	assert.Equal(t, KrachVersion, handshakeResponse.Version())
 	assert.Equal(t, PacketTypeHandshakeInitResponse, handshakeResponse.Type())
-	assert.Equal(t, PeerIndex(uint32(42)), handshakeResponse.ReceiverIndex())
 
 	pubKeyBytes, err := handshakeResponse.ReadEPublic()
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestHandshakeResponsePacket(t *testing.T) {
 }
 
 func TestHandshakeFinPacket(t *testing.T) {
-	handshakeFin := ComposeHandshakeFinPacket(PeerIndex(23), PeerIndex(42))
+	handshakeFin := ComposeHandshakeFinPacket()
 	randomCertBytes := make([]byte, 127)
 	rand.Read(randomCertBytes)
 	randomPayloadBytes := make([]byte, 95)

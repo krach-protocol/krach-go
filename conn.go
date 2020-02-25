@@ -478,11 +478,10 @@ func (c *Conn) Handshake() error {
 func (c *Conn) RunClientHandshake() error {
 
 	var (
-		msg                        []byte
-		state                      *noise.HandshakeState
-		err                        error
-		csIn, csOut                *noise.CipherState
-		senderIndex, receiverIndex PeerIndex
+		msg         []byte
+		state       *noise.HandshakeState
+		err         error
+		csIn, csOut *noise.CipherState
 	)
 
 	fmt.Println("[Client] Running client handshake")
@@ -528,7 +527,6 @@ func (c *Conn) RunClientHandshake() error {
 		c.in.freeBlock(inBlock)
 		return err
 	}
-	receiverIndex = hshkResp.ReceiverIndex()
 
 	err = c.processCallback(state.PeerIdentity(), payload)
 	if err != nil {
@@ -537,11 +535,10 @@ func (c *Conn) RunClientHandshake() error {
 	}
 	c.in.freeBlock(inBlock)
 
-	senderIndex = c.generarteUniquePeerIndex()
 	if csIn == nil && csOut == nil {
 		b := c.out.newBlock()
 		fmt.Println("[Client] Composing and sending handshake fin message")
-		handshakeFinMsg := ComposeHandshakeFinPacket(senderIndex, receiverIndex)
+		handshakeFinMsg := ComposeHandshakeFinPacket()
 		if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 			c.out.freeBlock(b)
 			return err
@@ -562,10 +559,6 @@ func (c *Conn) RunClientHandshake() error {
 
 	c.in.cs = csOut
 	c.out.cs = csIn
-	c.in.receiverIndex = receiverIndex
-	c.in.senderIndex = senderIndex
-	c.out.receiverIndex = receiverIndex
-	c.out.senderIndex = senderIndex
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
 	c.channelBinding = state.ChannelBinding()
 	c.handshakeComplete = true
@@ -574,8 +567,7 @@ func (c *Conn) RunClientHandshake() error {
 
 func (c *Conn) RunServerHandshake() error {
 	var (
-		csOut, csIn                *noise.CipherState
-		senderIndex, receiverIndex PeerIndex
+		csOut, csIn *noise.CipherState
 	)
 	fmt.Println("[Server] Performing server handshake")
 	hs, err := noise.NewHandshakeState(noise.Config{
@@ -606,10 +598,9 @@ func (c *Conn) RunServerHandshake() error {
 	if err != nil {
 		return err
 	}
-	receiverIndex = c.generarteUniquePeerIndex()
 	b := c.out.newBlock()
 	fmt.Println("[Server] Composing handshake response and sending it")
-	hndResp := ComposeHandshakeResponse(receiverIndex)
+	hndResp := ComposeHandshakeResponse()
 	if csOut, csIn, err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
@@ -633,7 +624,6 @@ func (c *Conn) RunServerHandshake() error {
 		data := c.hand.Next(c.hand.Len())
 		inBlock.reserve(len(data))
 		hndFin := HandshakeFinFromBuf(data)
-		senderIndex = hndFin.SenderIndex()
 		payload, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
 
 		c.in.freeBlock(inBlock)
@@ -654,8 +644,6 @@ func (c *Conn) RunServerHandshake() error {
 	}
 	c.in.cs = csOut
 	c.out.cs = csIn
-	c.in.receiverIndex, c.out.receiverIndex = receiverIndex, receiverIndex
-	c.in.senderIndex, c.out.senderIndex = senderIndex, senderIndex
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
 	c.channelBinding = hs.ChannelBinding()
 	c.config.PeerStatic = hs.PeerIdentity()
