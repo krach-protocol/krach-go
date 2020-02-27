@@ -251,7 +251,7 @@ func writeMessageDHES(s *State, msg WriteableHandshakeMessage) error {
 	if s.initiator {
 		s.symmState.MixKey(s.symmState.DH(s.ephemeralDHKey.Private, s.remoteIdentity.PublicKey()))
 	} else {
-		s.symmState.MixKey(s.symmState.DH(s.localIdentity.PrivateKey(), s.remoteIdentity.PublicKey()))
+		s.symmState.MixKey(s.symmState.DH(s.localIdentity.PrivateKey(), s.remoteEphemeralPubKey))
 	}
 	return nil
 }
@@ -423,8 +423,10 @@ func NewState(conf *Config) *State {
 
 	if s.initiator {
 		s.writeOperations = []writeOperation{writeMessageE, writeMessageS_DHSE}
+		s.readOperations = []readOperation{readMessageE_DHEE_S_DHES}
 	} else {
 		s.writeOperations = []writeOperation{writeMessageE_DHEE_S_DHES}
+		s.readOperations = []readOperation{readMessageE, readMessageS_DHSE}
 	}
 	return s
 }

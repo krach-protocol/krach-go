@@ -2,7 +2,6 @@ package krach
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
@@ -21,7 +20,7 @@ import (
 
 const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
 
-type VerifyCallbackFunc func(publicKey noise.Identity, data []byte) error
+type VerifyCallbackFunc func(publicKey *Identity, data []byte) error
 
 type CertPool interface {
 	Validate(cert *smolcert.Certificate) error
@@ -31,9 +30,9 @@ type ConnectionConfig struct {
 	isClient bool
 	Payload  []byte //certificates, signs etc
 	// StaticKey is this sides identity including the ed25519.PrivateKey
-	StaticKey noise.PrivateIdentity
+	StaticKey *PrivateIdentity
 	// PeerStatic is the remotes static identity (a smolcert), received during the handshake
-	PeerStatic noise.Identity
+	PeerStatic *Identity
 	// Padding is the amount of bytes to pad messages with
 	Padding uint16
 	// ReadTimeout sets a deadline to every read operation
@@ -119,7 +118,7 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 func (c *Conn) ConnectionState() tls.ConnectionState {
 
 	data := &struct {
-		PeerPublic    []byte
+		PeerPublic    [32]byte
 		HandshakeHash []byte
 	}{PeerPublic: c.config.PeerStatic.PublicKey(),
 		HandshakeHash: c.channelBinding}
@@ -393,7 +392,7 @@ func (c *Conn) Close() error {
 	return alertErr
 }
 
-func (c *Conn) UnmarshalIdentity(identityBytes []byte) (noise.Identity, error) {
+/*func (c *Conn) UnmarshalIdentity(identityBytes []byte) (noise.Identity, error) {
 	if cert, err := smolcert.ParseBuf(identityBytes); err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal remote identity: %w", err)
 	} else {
@@ -412,7 +411,7 @@ func (c *Conn) MarshalIdentity(identity noise.Identity) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("Unsupported identity type: %T", t)
 	}
-}
+}*/
 
 func (c *Conn) VerifyIdentity(id noise.Identity) error {
 	switch t := id.(type) {
@@ -518,12 +517,16 @@ func (c *Conn) RunClientHandshake() error {
 
 	var (
 		msg         []byte
-		state       *noise.HandshakeState
+		state       *State
 		err         error
 		csIn, csOut *noise.CipherState
 	)
 
-	state, err = noise.NewHandshakeState(noise.Config{
+	state = NewState(&Config{
+		Initiator:     true,
+		LocalIdentity: c.config.StaticKey,
+	})
+	/* state, err = noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Initiator:     true,
 		Pattern:       noise.HandshakeXX,
@@ -535,10 +538,10 @@ func (c *Conn) RunClientHandshake() error {
 	})
 	if err != nil {
 		return fmt.Errorf("Failed to create client handshake state: %w", err)
-	}
+	} */
 
 	hsInit := ComposeHandshakeInitPacket()
-	_, _, err = state.WriteMessage(hsInit, nil)
+	err = state.WriteMessage(hsInit, nil)
 	if err != nil {
 		return err
 	}
@@ -558,7 +561,7 @@ func (c *Conn) RunClientHandshake() error {
 	inBlock.reserve(len(msg))
 
 	hshkResp := HandshakeResponseFromBuf(msg)
-	_, csIn, csOut, err = state.ReadMessage(inBlock.data, hshkResp)
+	_, err = state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
 		c.in.freeBlock(inBlock)
 		return err
@@ -569,7 +572,7 @@ func (c *Conn) RunClientHandshake() error {
 	b := c.out.newBlock()
 
 	handshakeFinMsg := ComposeHandshakeFinPacket()
-	if csIn, csOut, err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
+	if err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
 	}
@@ -598,7 +601,12 @@ func (c *Conn) RunServerHandshake() error {
 		csOut, csIn *noise.CipherState
 	)
 
-	hs, err := noise.NewHandshakeState(noise.Config{
+	hs := NewState(&Config{
+		Initiator:     false,
+		LocalIdentity: c.config.StaticKey,
+	})
+
+	/*hs, err := noise.NewHandshakeState(noise.Config{
 		StaticKeypair: c.config.StaticKey,
 		Pattern:       noise.HandshakeXX,
 		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
@@ -607,7 +615,7 @@ func (c *Conn) RunServerHandshake() error {
 	})
 	if err != nil {
 		return err
-	}
+	}*/
 
 	//read noise message
 	if err := c.readPacket(); err != nil {
@@ -615,7 +623,7 @@ func (c *Conn) RunServerHandshake() error {
 	}
 
 	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
-	_, _, _, err = hs.ReadMessage(nil, hndInit)
+	_, err := hs.ReadMessage(nil, hndInit)
 
 	if err != nil {
 		return err
@@ -624,7 +632,7 @@ func (c *Conn) RunServerHandshake() error {
 	b := c.out.newBlock()
 
 	hndResp := ComposeHandshakeResponse()
-	if csOut, csIn, err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
+	if err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
 	}
@@ -644,7 +652,7 @@ func (c *Conn) RunServerHandshake() error {
 	data := c.hand.Next(c.hand.Len())
 	inBlock.reserve(len(data))
 	hndFin := HandshakeFinFromBuf(data)
-	_, csOut, csIn, err = hs.ReadMessage(nil, hndFin)
+	_, err = hs.ReadMessage(nil, hndFin)
 
 	c.in.freeBlock(inBlock)
 
@@ -661,6 +669,8 @@ func (c *Conn) RunServerHandshake() error {
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
 	c.channelBinding = hs.ChannelBinding()
 	c.config.PeerStatic = hs.PeerIdentity()
+
+	// TODO run additional verify callback with payload
 
 	/*info := &ConnectionInfo{
 		Name: "Noise",

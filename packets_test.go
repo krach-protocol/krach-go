@@ -24,8 +24,8 @@ func TestPacketTypes(t *testing.T) {
 func TestHandshakeResponsePacket(t *testing.T) {
 	handshakeResponse := ComposeHandshakeResponse()
 
-	randomBytes := make([]byte, 32)
-	rand.Read(randomBytes)
+	var randomBytes [32]byte
+	rand.Read(randomBytes[:])
 	handshakeResponse.WriteEPublic(randomBytes)
 	randomCertBytes := make([]byte, 139)
 	rand.Read(randomCertBytes)

@@ -58,8 +58,9 @@ func HandshakeInitFromBuf(b []byte) *HandshakeInitPacket {
 	}
 }
 
-func (h *HandshakeInitPacket) ReadEPublic() ([]byte, error) {
-	return h.Buf[2:34], nil
+func (h *HandshakeInitPacket) ReadEPublic() (pubKey [32]byte, err error) {
+	copy(pubKey[:], h.Buf[2:34])
+	return
 }
 
 func (h *HandshakeInitPacket) ReadEncryptedIdentity() ([]byte, error) {
@@ -77,8 +78,8 @@ func (h *HandshakeInitPacket) EphemeralPublicKey() [32]byte {
 	return key
 }
 
-func (h *HandshakeInitPacket) WriteEPublic(e []byte) {
-	copy(h.Buf[2:], e)
+func (h *HandshakeInitPacket) WriteEPublic(e [32]byte) {
+	copy(h.Buf[2:], e[:])
 }
 
 func (h *HandshakeInitPacket) WriteEncryptedIdentity(s []byte) {
@@ -124,13 +125,13 @@ func ComposeHandshakeResponse() *HandshakeResponsePacket {
 	}
 }
 
-func (h *HandshakeResponsePacket) WriteEPublic(e []byte) {
+func (h *HandshakeResponsePacket) WriteEPublic(e [32]byte) {
 	if len(h.Buf) < 34 {
 		buf := make([]byte, 34)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	copy(h.Buf[2:], e)
+	copy(h.Buf[2:], e[:])
 }
 
 func (h *HandshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
@@ -156,11 +157,12 @@ func (h *HandshakeResponsePacket) WriteEncryptedPayload(p []byte) {
 	copy(h.Buf[38+idLen:], p)
 }
 
-func (h *HandshakeResponsePacket) ReadEPublic() ([]byte, error) {
+func (h *HandshakeResponsePacket) ReadEPublic() (pubKey [32]byte, err error) {
 	if len(h.Buf) < 34 {
-		return nil, fmt.Errorf("HandshakeResponse packet is too small. Expected at least 38 bytes, got %d", len(h.Buf))
+		return pubKey, fmt.Errorf("HandshakeResponse packet is too small. Expected at least 38 bytes, got %d", len(h.Buf))
 	}
-	return h.Buf[2:34], nil
+	copy(pubKey[:], h.Buf[2:34])
+	return pubKey, nil
 }
 
 func (h *HandshakeResponsePacket) ReadEncryptedIdentity() ([]byte, error) {
@@ -216,7 +218,7 @@ func HandshakeFinFromBuf(b []byte) *HandshakeFinPacket {
 	}
 }
 
-func (h *HandshakeFinPacket) ReadEPublic() ([]byte, error) {
+func (h *HandshakeFinPacket) ReadEPublic() ([32]byte, error) {
 	panic("Handshake Fin should not contain an ephemeral public key")
 }
 
@@ -263,7 +265,7 @@ func (h *HandshakeFinPacket) WriteEncryptedPayload(p []byte) {
 	copy(h.Buf[4+idLen+2:], p)
 }
 
-func (h *HandshakeFinPacket) WriteEPublic(e []byte) {
+func (h *HandshakeFinPacket) WriteEPublic(e [32]byte) {
 	panic("The handshake fin packet should not contain an ephemeral public key")
 }
 
