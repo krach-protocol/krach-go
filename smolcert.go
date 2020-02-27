@@ -49,10 +49,10 @@ func NewPrivateIdentity(cert *smolcert.Certificate, privKey ed25519.PrivateKey) 
 }
 
 // PrivateKey returns a curve25519 representation of the private key
-func (p *PrivateIdentity) PrivateKey() []byte {
+func (p *PrivateIdentity) PrivateKey() [32]byte {
 	var edPrivKey [64]byte
 	var curvePrivKey [32]byte
 	copy(edPrivKey[:], p.privKey)
 	extra25519.PrivateKeyToCurve25519(&curvePrivKey, &edPrivKey)
-	return curvePrivKey[:]
+	return curvePrivKey
 }
