@@ -13,7 +13,7 @@ type Identity struct {
 }
 
 // PublicKey returns the curve25519 representation of the ed25519 public key of this certificate
-func (s *Identity) PublicKey() []byte {
+func (s *Identity) PublicKey() [32]byte {
 	// The certificates used by Smolcert use ed25519 keys, but we need curve25519 keys.
 	// As they both are based on the same curve, we can convert them.
 	var curvePubKey [32]byte
@@ -21,9 +21,9 @@ func (s *Identity) PublicKey() []byte {
 	copy(edPubKey[:], s.Certificate.PubKey)
 	if !extra25519.PublicKeyToCurve25519(&curvePubKey, &edPubKey) {
 		// Signal that we couldn't create a valid curve25519 representation
-		return nil
+		panic("Failed to convert ed25519 public to curve25519 public key")
 	}
-	return curvePubKey[:]
+	return curvePubKey
 }
 
 // Cert returns the plain smolcert certificate

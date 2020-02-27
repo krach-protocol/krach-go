@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/connctd/noise"
 	"github.com/smolcert/smolcert"
 )
 
@@ -26,7 +25,7 @@ func ExampleHTTPServer() {
 	}
 
 	l, err := Listen(serverAddr, &ConnectionConfig{
-		StaticKey: noise.NewPrivateSmolIdentity(serverCert, serverKey),
+		StaticKey: NewPrivateIdentity(serverCert, serverKey),
 	}, smolcert.NewCertPool(rootCert))
 	if err != nil {
 		panic(err)
@@ -52,7 +51,7 @@ func ExampleHTTPServer() {
 	krachTransport := http.Transport{}
 	krachTransport.Dial = func(network, addr string) (net.Conn, error) {
 		return Dial(addr, &ConnectionConfig{
-			StaticKey: noise.NewPrivateSmolIdentity(clientCert, clientKey),
+			StaticKey: NewPrivateIdentity(clientCert, clientKey),
 		}, smolcert.NewCertPool(rootCert))
 	}
 	client := &http.Client{
