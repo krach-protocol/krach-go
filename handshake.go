@@ -69,7 +69,7 @@ func (s *CipherState) Encrypt(out, ad, plaintext []byte) []byte {
 }
 
 func (s *CipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
-	out, err := s.c.Open(out, s.nonce(s.n), ad, ciphertext)
+	out, err := s.c.Open(out, s.nonce(s.n), ciphertext, ad)
 	s.n++
 	return out, err
 }
@@ -196,6 +196,27 @@ func (s *symmetricState) Split() (*CipherState, *CipherState) {
 	s1.c = s.Cipher(s1.k)
 	s2.c = s.Cipher(s2.k)
 	return s1, s2
+}
+
+func (s *symmetricState) Checkpoint() {
+	if len(s.ck) > cap(s.prevCK) {
+		s.prevCK = make([]byte, len(s.ck))
+	}
+	s.prevCK = s.prevCK[:len(s.ck)]
+	copy(s.prevCK, s.ck)
+
+	if len(s.h) > cap(s.prevH) {
+		s.prevH = make([]byte, len(s.h))
+	}
+	s.prevH = s.prevH[:len(s.h)]
+	copy(s.prevH, s.h)
+}
+
+func (s *symmetricState) Rollback() {
+	s.ck = s.ck[:len(s.prevCK)]
+	copy(s.ck, s.prevCK)
+	s.h = s.h[:len(s.prevH)]
+	copy(s.h, s.prevH)
 }
 
 type DHKey struct {
@@ -436,6 +457,9 @@ func (s *State) eventuallyVerifyIdentity(id *Identity) error {
 }
 
 func (s *State) WriteMessage(out WriteableHandshakeMessage, payload []byte) (err error) {
+	if !s.shouldWrite {
+		return errors.New("Unexpected call to WriteMessage should be ReadMessage")
+	}
 	if s.writeMsgIdx >= len(s.writeOperations) {
 		return errors.New("Invalid state, no more write operations")
 	}
@@ -456,11 +480,16 @@ func (s *State) WriteMessage(out WriteableHandshakeMessage, payload []byte) (err
 }
 
 func (s *State) ReadMessage(out []byte, message ReadableHandshakeMessage) (payload []byte, err error) {
+	if s.shouldWrite {
+		return nil, errors.New("Unexpected call to ReadMessage should be WriteMessage")
+	}
 	if s.readMsgIdx >= len(s.readOperations) {
 		return nil, errors.New("Invalid state, no more read operations")
 	}
+	s.symmState.Checkpoint()
 
 	op := s.readOperations[s.readMsgIdx]
+	s.readMsgIdx++
 	if err := op(s, message); err != nil {
 		return nil, err
 	}
@@ -471,10 +500,10 @@ func (s *State) ReadMessage(out []byte, message ReadableHandshakeMessage) (paylo
 	}
 	out, err = s.symmState.DecryptAndHash(out, msgBytes)
 	if err != nil {
-		// TODO rollback
-		return nil, fmt.Errorf("Failed to descript payload: %w", err)
+		s.symmState.Rollback()
+		return nil, fmt.Errorf("Failed to decrypt payload: %w", err)
 	}
-	s.readMsgIdx++
+	s.shouldWrite = true
 
 	if s.readMsgIdx == len(s.readOperations) {
 		s.cs1, s.cs2 = s.symmState.Split()
