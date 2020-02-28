@@ -519,7 +519,7 @@ func (c *Conn) RunClientHandshake() error {
 		msg         []byte
 		state       *State
 		err         error
-		csIn, csOut *noise.CipherState
+		csIn, csOut *CipherState
 	)
 
 	state = NewState(&Config{
@@ -584,6 +584,11 @@ func (c *Conn) RunClientHandshake() error {
 	}
 	c.out.freeBlock(b)
 
+	csIn, csOut, err = state.CipherStates()
+	if err != nil {
+		return err
+	}
+
 	if csIn == nil || csOut == nil {
 		panic("not supported")
 	}
@@ -598,7 +603,7 @@ func (c *Conn) RunClientHandshake() error {
 
 func (c *Conn) RunServerHandshake() error {
 	var (
-		csOut, csIn *noise.CipherState
+		csOut, csIn *CipherState
 	)
 
 	hs := NewState(&Config{
@@ -636,6 +641,7 @@ func (c *Conn) RunServerHandshake() error {
 		c.out.freeBlock(b)
 		return err
 	}
+
 	_, err = c.writePacket(hndResp.Buf)
 	c.out.freeBlock(b)
 	if err != nil {
@@ -651,11 +657,17 @@ func (c *Conn) RunServerHandshake() error {
 	inBlock := c.in.newBlock()
 	data := c.hand.Next(c.hand.Len())
 	inBlock.reserve(len(data))
+
 	hndFin := HandshakeFinFromBuf(data)
 	_, err = hs.ReadMessage(nil, hndFin)
 
 	c.in.freeBlock(inBlock)
 
+	if err != nil {
+		return err
+	}
+
+	csIn, csOut, err = hs.CipherStates()
 	if err != nil {
 		return err
 	}
@@ -688,6 +700,7 @@ func (c *Conn) RunServerHandshake() error {
 	c.handshakeComplete = true
 	return nil
 }
+
 func pad(payload []byte) []byte {
 	padBuf := make([]byte, 2+len(payload))
 	copy(padBuf[2:], payload)

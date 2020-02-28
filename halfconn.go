@@ -8,14 +8,13 @@ import (
 
 	"fmt"
 
-	"github.com/connctd/noise"
 	"github.com/pkg/errors"
 )
 
 //halfConn represents inbound or outbound connection state with its own cipher
 type halfConn struct {
 	sync.Mutex
-	cs      *noise.CipherState
+	cs      *CipherState
 	err     error
 	bfree   *buffer // list of free blocks
 	padding uint16
