@@ -23,15 +23,6 @@ const (
 	AuthTagLen        = 16   // Length of the AuthenticationTag in bytes
 )
 
-// PeerIndex (unused) represents the 32 bit index each peer assigns to a session for identification independent
-// from IP address and port
-type PeerIndex uint32
-
-// Uint32 returns the PeerIndex as an unsigned 32 bit integer to be used when serializing a packet
-func (p PeerIndex) Uint32() uint32 {
-	return uint32(p)
-}
-
 var (
 	// A timeout error which should be similar enough to the timeout error used in the net package.
 	timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
