@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/connctd/noise"
 	"github.com/pkg/errors"
 	"github.com/smolcert/smolcert"
 )
@@ -392,38 +391,6 @@ func (c *Conn) Close() error {
 	return alertErr
 }
 
-/*func (c *Conn) UnmarshalIdentity(identityBytes []byte) (noise.Identity, error) {
-	if cert, err := smolcert.ParseBuf(identityBytes); err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal remote identity: %w", err)
-	} else {
-		return &noise.SmolIdentity{*cert}, nil
-	}
-}
-
-func (c *Conn) MarshalIdentity(identity noise.Identity) ([]byte, error) {
-	switch t := identity.(type) {
-	case *smolcert.Certificate:
-		return t.Bytes()
-	case *noise.SmolIdentity:
-		return t.Bytes()
-	case *noise.PrivateSmolIdentity:
-		return t.Bytes()
-	default:
-		return nil, fmt.Errorf("Unsupported identity type: %T", t)
-	}
-}*/
-
-func (c *Conn) VerifyIdentity(id noise.Identity) error {
-	switch t := id.(type) {
-	case *smolcert.Certificate:
-		return c.certPool.Validate(t)
-	case *noise.SmolIdentity:
-		return c.certPool.Validate(t.Cert())
-	default:
-		return fmt.Errorf("Invalid identity type %T, unable to verify", t)
-	}
-}
-
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
 // Most uses of this package need not call Handshake
@@ -526,19 +493,6 @@ func (c *Conn) RunClientHandshake() error {
 		Initiator:     true,
 		LocalIdentity: c.config.StaticKey,
 	})
-	/* state, err = noise.NewHandshakeState(noise.Config{
-		StaticKeypair: c.config.StaticKey,
-		Initiator:     true,
-		Pattern:       noise.HandshakeXX,
-		IDMarshaler:   c,
-		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
-		// TODO check if prologue increaes security and this increases is worth the additional bytes
-		Random:     rand.Reader,
-		IDVerifier: c,
-	})
-	if err != nil {
-		return fmt.Errorf("Failed to create client handshake state: %w", err)
-	} */
 
 	hsInit := ComposeHandshakeInitPacket()
 	err = state.WriteMessage(hsInit, nil)
@@ -611,18 +565,6 @@ func (c *Conn) RunServerHandshake() error {
 		LocalIdentity: c.config.StaticKey,
 	})
 
-	/*hs, err := noise.NewHandshakeState(noise.Config{
-		StaticKeypair: c.config.StaticKey,
-		Pattern:       noise.HandshakeXX,
-		CipherSuite:   noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2b),
-		IDMarshaler:   c,
-		IDVerifier:    c,
-	})
-	if err != nil {
-		return err
-	}*/
-
-	//read noise message
 	if err := c.readPacket(); err != nil {
 		return err
 	}
@@ -647,8 +589,6 @@ func (c *Conn) RunServerHandshake() error {
 	if err != nil {
 		return err
 	}
-
-	//read noise message
 
 	if err := c.readPacket(); err != nil {
 		return err
