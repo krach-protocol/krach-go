@@ -584,7 +584,7 @@ func (c *Conn) RunClientHandshake() error {
 	}
 	c.out.freeBlock(b)
 
-	csIn, csOut, err = state.CipherStates()
+	csOut, csIn, err = state.CipherStates()
 	if err != nil {
 		return err
 	}
