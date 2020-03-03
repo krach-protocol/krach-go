@@ -47,7 +47,7 @@ func TestOverallLocalConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	l, err := Listen(localAddr, &ConnectionConfig{
-		StaticKey:        NewPrivateIdentity(serverCert, serverKey),
+		LocalIdentity:    NewPrivateIdentity(serverCert, serverKey),
 		HandshakeTimeout: time.Second * 2,
 	}, smolcert.NewCertPool(rootCert))
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestOverallLocalConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
-		StaticKey: NewPrivateIdentity(clientCert, clientKey),
+		LocalIdentity: NewPrivateIdentity(clientCert, clientKey),
 	}, smolcert.NewCertPool(rootCert))
 	err = clientConn.Handshake()
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestOverallLocalConnection(t *testing.T) {
 
 func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, serverKey, clientKey ed25519.PrivateKey) {
 	l, err := Listen(localAddr, &ConnectionConfig{
-		StaticKey:        NewPrivateIdentity(serverCert, serverKey),
+		LocalIdentity:    NewPrivateIdentity(serverCert, serverKey),
 		ReadTimeout:      time.Second * 1,
 		WriteTimeout:     time.Second * 1,
 		HandshakeTimeout: time.Second * 2,
@@ -134,7 +134,7 @@ func runHandshake(b *testing.B, serverCert, clientCert *smolcert.Certificate, se
 	}()
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
-		StaticKey:        NewPrivateIdentity(clientCert, clientKey),
+		LocalIdentity:    NewPrivateIdentity(clientCert, clientKey),
 		ReadTimeout:      time.Second * 1,
 		WriteTimeout:     time.Second * 1,
 		HandshakeTimeout: time.Second * 2,
@@ -207,7 +207,7 @@ func BenchmarkThroughput(b *testing.B) {
 	require.NoError(b, err)
 
 	l, err := Listen(localAddr, &ConnectionConfig{
-		StaticKey:        NewPrivateIdentity(serverCert, serverKey),
+		LocalIdentity:    NewPrivateIdentity(serverCert, serverKey),
 		ReadTimeout:      time.Second * 1,
 		WriteTimeout:     time.Second * 1,
 		HandshakeTimeout: time.Second * 2,
@@ -245,7 +245,7 @@ func BenchmarkThroughput(b *testing.B) {
 	require.NoError(b, err)
 
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
-		StaticKey:        NewPrivateIdentity(clientCert, clientKey),
+		LocalIdentity:    NewPrivateIdentity(clientCert, clientKey),
 		ReadTimeout:      time.Second * 1,
 		WriteTimeout:     time.Second * 1,
 		HandshakeTimeout: time.Second * 2,

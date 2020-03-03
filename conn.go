@@ -27,9 +27,9 @@ type CertPool interface {
 
 type ConnectionConfig struct {
 	isClient bool
-	Payload  []byte //certificates, signs etc
-	// StaticKey is this sides identity including the ed25519.PrivateKey
-	StaticKey *PrivateIdentity
+	Payload  []byte //additional certificates, configuration
+	// LocalIdentity is this sides identity including the ed25519.PrivateKey
+	LocalIdentity *PrivateIdentity
 	// PeerStatic is the remotes static identity (a smolcert), received during the handshake
 	PeerStatic *Identity
 	// Padding is the amount of bytes to pad messages with
@@ -40,6 +40,8 @@ type ConnectionConfig struct {
 	WriteTimeout time.Duration
 	// HandshakeTimeout specifies the maximum duration which a handshake is allowed to take
 	HandshakeTimeout time.Duration
+	// VerifyCallback can be called to validate the identity and received payload during the handshake
+	VerifyCallback VerifyCallbackFunc
 }
 
 type ConnectionInfo struct {
@@ -491,7 +493,7 @@ func (c *Conn) RunClientHandshake() error {
 
 	state = NewState(&Config{
 		Initiator:     true,
-		LocalIdentity: c.config.StaticKey,
+		LocalIdentity: c.config.LocalIdentity,
 	})
 
 	hsInit := ComposeHandshakeInitPacket()
@@ -515,13 +517,18 @@ func (c *Conn) RunClientHandshake() error {
 	inBlock.reserve(len(msg))
 
 	hshkResp := HandshakeResponseFromBuf(msg)
-	_, err = state.ReadMessage(inBlock.data, hshkResp)
+	payload, err := state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
 		c.in.freeBlock(inBlock)
 		return err
 	}
 
 	c.in.freeBlock(inBlock)
+
+	remoteID := state.PeerIdentity()
+	if err := c.callVerifyCallback(remoteID, payload); err != nil {
+		return err
+	}
 
 	b := c.out.newBlock()
 
@@ -562,7 +569,7 @@ func (c *Conn) RunServerHandshake() error {
 
 	hs := NewState(&Config{
 		Initiator:     false,
-		LocalIdentity: c.config.StaticKey,
+		LocalIdentity: c.config.LocalIdentity,
 	})
 
 	if err := c.readPacket(); err != nil {
@@ -599,11 +606,15 @@ func (c *Conn) RunServerHandshake() error {
 	inBlock.reserve(len(data))
 
 	hndFin := HandshakeFinFromBuf(data)
-	_, err = hs.ReadMessage(nil, hndFin)
-
+	payload, err := hs.ReadMessage(nil, hndFin)
 	c.in.freeBlock(inBlock)
 
 	if err != nil {
+		return err
+	}
+
+	remoteID := hs.PeerIdentity()
+	if err := c.callVerifyCallback(remoteID, payload); err != nil {
 		return err
 	}
 
@@ -639,6 +650,13 @@ func (c *Conn) RunServerHandshake() error {
 
 	c.handshakeComplete = true
 	return nil
+}
+
+func (c *Conn) callVerifyCallback(id *Identity, payload []byte) error {
+	if c.config.VerifyCallback == nil {
+		return nil
+	}
+	return c.config.VerifyCallback(id, payload)
 }
 
 func pad(payload []byte) []byte {

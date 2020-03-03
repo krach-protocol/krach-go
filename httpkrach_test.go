@@ -25,7 +25,7 @@ func ExampleHTTPServer() {
 	}
 
 	l, err := Listen(serverAddr, &ConnectionConfig{
-		StaticKey: NewPrivateIdentity(serverCert, serverKey),
+		LocalIdentity: NewPrivateIdentity(serverCert, serverKey),
 	}, smolcert.NewCertPool(rootCert))
 	if err != nil {
 		panic(err)
@@ -51,7 +51,7 @@ func ExampleHTTPServer() {
 	krachTransport := http.Transport{}
 	krachTransport.Dial = func(network, addr string) (net.Conn, error) {
 		return Dial(addr, &ConnectionConfig{
-			StaticKey: NewPrivateIdentity(clientCert, clientKey),
+			LocalIdentity: NewPrivateIdentity(clientCert, clientKey),
 		}, smolcert.NewCertPool(rootCert))
 	}
 	client := &http.Client{
