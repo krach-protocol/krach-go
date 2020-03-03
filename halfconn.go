@@ -14,7 +14,7 @@ import (
 //halfConn represents inbound or outbound connection state with its own cipher
 type halfConn struct {
 	sync.Mutex
-	cs      *CipherState
+	cs      *cipherState
 	err     error
 	bfree   *buffer // list of free blocks
 	padding uint16

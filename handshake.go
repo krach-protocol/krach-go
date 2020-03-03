@@ -26,29 +26,29 @@ const (
 	dhLen = 32
 )
 
-// ReadableHandshakeMessage provides the HandshakeState the possibility to digest handshake messages in other
+// readableHandshakeMessage provides the HandshakeState the possibility to digest handshake messages in other
 // formats than simple concatenated byte slices
-type ReadableHandshakeMessage interface {
+type readableHandshakeMessage interface {
 	ReadEPublic() ([32]byte, error)
 	ReadEncryptedIdentity() ([]byte, error)
 	ReadPayload() ([]byte, error)
 	Length() int
 }
 
-// WriteableHandshakeMessage takes data from the HandshakeState to marshal it to a custom format.
-type WriteableHandshakeMessage interface {
+// writeableHandshakeMessage takes data from the HandshakeState to marshal it to a custom format.
+type writeableHandshakeMessage interface {
 	WriteEPublic(e [32]byte)
 	WriteEncryptedIdentity(s []byte)
 	WriteEncryptedPayload(p []byte)
 }
 
-type CipherState struct {
+type cipherState struct {
 	c cipher.AEAD
 	k [32]byte
 	n uint64
 }
 
-func (s *CipherState) Cipher(k [32]byte) cipher.AEAD {
+func (s *cipherState) Cipher(k [32]byte) cipher.AEAD {
 	c, err := chacha20poly1305.New(k[:])
 	if err != nil {
 		panic(fmt.Errorf("Failed to create ChaChaPoly1305 cipher: %w", err))
@@ -56,25 +56,25 @@ func (s *CipherState) Cipher(k [32]byte) cipher.AEAD {
 	return c
 }
 
-func (s *CipherState) nonce(in uint64) []byte {
+func (s *cipherState) nonce(in uint64) []byte {
 	var nonce [12]byte
 	binary.LittleEndian.PutUint64(nonce[4:], in)
 	return nonce[:]
 }
 
-func (s *CipherState) Encrypt(out, ad, plaintext []byte) []byte {
+func (s *cipherState) Encrypt(out, ad, plaintext []byte) []byte {
 	out = s.c.Seal(out, s.nonce(s.n), plaintext, ad)
 	s.n++
 	return out
 }
 
-func (s *CipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
+func (s *cipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
 	out, err := s.c.Open(out, s.nonce(s.n), ciphertext, ad)
 	s.n++
 	return out, err
 }
 
-func (s *CipherState) GenerateKeypair(random io.Reader) (DHKey, error) {
+func (s *cipherState) GenerateKeypair(random io.Reader) (DHKey, error) {
 	var pubkey, privkey [32]byte
 	if random == nil {
 		random = rand.Reader
@@ -86,7 +86,7 @@ func (s *CipherState) GenerateKeypair(random io.Reader) (DHKey, error) {
 	return DHKey{Private: privkey, Public: pubkey}, nil
 }
 
-func (s *CipherState) DH(privkey, pubkey [32]byte) []byte {
+func (s *cipherState) DH(privkey, pubkey [32]byte) []byte {
 	var dst, in, base [32]byte
 	copy(in[:], privkey[:])
 	copy(base[:], pubkey[:])
@@ -94,7 +94,7 @@ func (s *CipherState) DH(privkey, pubkey [32]byte) []byte {
 	return dst[:]
 }
 
-func (s *CipherState) Rekey() {
+func (s *cipherState) Rekey() {
 	var zeros [32]byte
 	var out []byte
 	out = s.c.Seal(out, s.nonce(math.MaxUint64), []byte{}, zeros[:])
@@ -103,7 +103,7 @@ func (s *CipherState) Rekey() {
 	s.c = s.Cipher(s.k)
 }
 
-func (s *CipherState) Hash() hash.Hash {
+func (s *cipherState) Hash() hash.Hash {
 	h, err := blake2s.New256(nil)
 	if err != nil {
 		panic(fmt.Errorf("Failed too create Blake2S hash: %w", err))
@@ -111,12 +111,12 @@ func (s *CipherState) Hash() hash.Hash {
 	return h
 }
 
-func (s *CipherState) Name() []byte {
+func (s *cipherState) Name() []byte {
 	return []byte("ed25519" + "_" + "ChaCha20Poly1305" + "_" + "Blake2S")
 }
 
 type symmetricState struct {
-	CipherState
+	cipherState
 	hasK bool
 	ck   []byte
 	h    []byte
@@ -188,8 +188,8 @@ func (s *symmetricState) DecryptAndHash(out, data []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-func (s *symmetricState) Split() (*CipherState, *CipherState) {
-	s1, s2 := &CipherState{}, &CipherState{}
+func (s *symmetricState) Split() (*cipherState, *cipherState) {
+	s1, s2 := &cipherState{}, &cipherState{}
 	hk1, hk2, _ := hkdf(s.Hash, 2, s1.k[:0], s2.k[:0], nil, s.ck, nil)
 	copy(s1.k[:], hk1)
 	copy(s2.k[:], hk2)
@@ -224,16 +224,16 @@ type DHKey struct {
 	Public  [32]byte
 }
 
-type Config struct {
+type handshakeConfig struct {
 	Random        io.Reader
 	Initiator     bool
 	LocalIdentity *PrivateIdentity
 }
 
-type writeOperation func(s *State, msg WriteableHandshakeMessage) error
-type readOperation func(s *State, msg ReadableHandshakeMessage) error
+type writeOperation func(s *handshakeState, msg writeableHandshakeMessage) error
+type readOperation func(s *handshakeState, msg readableHandshakeMessage) error
 
-func writeMessageE(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageE(s *handshakeState, msg writeableHandshakeMessage) error {
 	e, err := s.symmState.GenerateKeypair(s.rng)
 	if err != nil {
 		return fmt.Errorf("Failed to generate ephemeral key pair: %w", err)
@@ -248,7 +248,7 @@ func writeMessageE(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func writeMessageS(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageS(s *handshakeState, msg writeableHandshakeMessage) error {
 	if len(s.localIdentity.PublicKey()) == 0 {
 		return errors.New("Invalid state, Public Key of local identity is nil")
 	}
@@ -263,12 +263,12 @@ func writeMessageS(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func writeMessageDHEE(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageDHEE(s *handshakeState, msg writeableHandshakeMessage) error {
 	s.symmState.MixKey(s.symmState.DH(s.ephemeralDHKey.Private, s.remoteEphemeralPubKey))
 	return nil
 }
 
-func writeMessageDHES(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageDHES(s *handshakeState, msg writeableHandshakeMessage) error {
 	if s.initiator {
 		s.symmState.MixKey(s.symmState.DH(s.ephemeralDHKey.Private, s.remoteIdentity.PublicKey()))
 	} else {
@@ -277,7 +277,7 @@ func writeMessageDHES(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func writeMessageDHSE(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageDHSE(s *handshakeState, msg writeableHandshakeMessage) error {
 	if s.initiator {
 		s.symmState.MixKey(s.symmState.DH(s.localIdentity.PrivateKey(), s.remoteEphemeralPubKey))
 	} else {
@@ -286,7 +286,7 @@ func writeMessageDHSE(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func writeMessageE_DHEE_S_DHES(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageE_DHEE_S_DHES(s *handshakeState, msg writeableHandshakeMessage) error {
 	for _, f := range []writeOperation{writeMessageE, writeMessageDHEE, writeMessageS, writeMessageDHES} {
 		if err := f(s, msg); err != nil {
 			return err
@@ -295,7 +295,7 @@ func writeMessageE_DHEE_S_DHES(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func writeMessageS_DHSE(s *State, msg WriteableHandshakeMessage) error {
+func writeMessageS_DHSE(s *handshakeState, msg writeableHandshakeMessage) error {
 	for _, f := range []writeOperation{writeMessageS, writeMessageDHSE} {
 		if err := f(s, msg); err != nil {
 			return err
@@ -304,7 +304,7 @@ func writeMessageS_DHSE(s *State, msg WriteableHandshakeMessage) error {
 	return nil
 }
 
-func readMessageE(s *State, msg ReadableHandshakeMessage) (err error) {
+func readMessageE(s *handshakeState, msg readableHandshakeMessage) (err error) {
 	if msg.Length() < dhLen {
 		return errors.New("Message is too short")
 	}
@@ -321,7 +321,7 @@ func readMessageE(s *State, msg ReadableHandshakeMessage) (err error) {
 	return nil
 }
 
-func readMessageS(s *State, msg ReadableHandshakeMessage) error {
+func readMessageS(s *handshakeState, msg readableHandshakeMessage) error {
 	expected := dhLen
 	if s.symmState.hasK {
 		expected += 16
@@ -358,12 +358,12 @@ func readMessageS(s *State, msg ReadableHandshakeMessage) error {
 	return nil
 }
 
-func readMessageDHEE(s *State, msg ReadableHandshakeMessage) error {
+func readMessageDHEE(s *handshakeState, msg readableHandshakeMessage) error {
 	s.symmState.MixKey(s.symmState.DH(s.ephemeralDHKey.Private, s.remoteEphemeralPubKey))
 	return nil
 }
 
-func readMessageDHES(s *State, msg ReadableHandshakeMessage) error {
+func readMessageDHES(s *handshakeState, msg readableHandshakeMessage) error {
 	if s.remoteIdentity == nil {
 		return errors.New("Invalid state! We haven't received a remote identity yet")
 	}
@@ -375,7 +375,7 @@ func readMessageDHES(s *State, msg ReadableHandshakeMessage) error {
 	return nil
 }
 
-func readMessageDHSE(s *State, msg ReadableHandshakeMessage) error {
+func readMessageDHSE(s *handshakeState, msg readableHandshakeMessage) error {
 	if s.remoteIdentity == nil {
 		return errors.New("Invalid state! We haven't received a remote identity yet")
 	}
@@ -387,7 +387,7 @@ func readMessageDHSE(s *State, msg ReadableHandshakeMessage) error {
 	return nil
 }
 
-func readMessageE_DHEE_S_DHES(s *State, msg ReadableHandshakeMessage) error {
+func readMessageE_DHEE_S_DHES(s *handshakeState, msg readableHandshakeMessage) error {
 	for _, f := range []readOperation{readMessageE, readMessageDHEE, readMessageS, readMessageDHES} {
 		if err := f(s, msg); err != nil {
 			return err
@@ -396,7 +396,7 @@ func readMessageE_DHEE_S_DHES(s *State, msg ReadableHandshakeMessage) error {
 	return nil
 }
 
-func readMessageS_DHSE(s *State, msg ReadableHandshakeMessage) error {
+func readMessageS_DHSE(s *handshakeState, msg readableHandshakeMessage) error {
 	for _, f := range []readOperation{readMessageS, readMessageDHSE} {
 		if err := f(s, msg); err != nil {
 			return err
@@ -405,7 +405,7 @@ func readMessageS_DHSE(s *State, msg ReadableHandshakeMessage) error {
 	return nil
 }
 
-type State struct {
+type handshakeState struct {
 	rng         io.Reader
 	readMsgIdx  int
 	writeMsgIdx int
@@ -420,12 +420,12 @@ type State struct {
 	remoteEphemeralPubKey [32]byte
 	initiator             bool
 	shouldWrite           bool
-	cs1                   *CipherState
-	cs2                   *CipherState
+	cs1                   *cipherState
+	cs2                   *cipherState
 }
 
-func NewState(conf *Config) *State {
-	s := &State{
+func newState(conf *handshakeConfig) *handshakeState {
+	s := &handshakeState{
 		rng:           conf.Random,
 		localIdentity: conf.LocalIdentity,
 		initiator:     conf.Initiator,
@@ -452,11 +452,11 @@ func NewState(conf *Config) *State {
 	return s
 }
 
-func (s *State) eventuallyVerifyIdentity(id *Identity) error {
+func (s *handshakeState) eventuallyVerifyIdentity(id *Identity) error {
 	return nil
 }
 
-func (s *State) WriteMessage(out WriteableHandshakeMessage, payload []byte) (err error) {
+func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []byte) (err error) {
 	if !s.shouldWrite {
 		return errors.New("Unexpected call to WriteMessage should be ReadMessage")
 	}
@@ -479,7 +479,7 @@ func (s *State) WriteMessage(out WriteableHandshakeMessage, payload []byte) (err
 	return nil
 }
 
-func (s *State) ReadMessage(out []byte, message ReadableHandshakeMessage) (payload []byte, err error) {
+func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessage) (payload []byte, err error) {
 	if s.shouldWrite {
 		return nil, errors.New("Unexpected call to ReadMessage should be WriteMessage")
 	}
@@ -511,17 +511,17 @@ func (s *State) ReadMessage(out []byte, message ReadableHandshakeMessage) (paylo
 	return out, nil
 }
 
-func (s *State) CipherStates() (*CipherState, *CipherState, error) {
+func (s *handshakeState) CipherStates() (*cipherState, *cipherState, error) {
 	if s.cs1 != nil && s.cs2 != nil {
 		return s.cs1, s.cs2, nil
 	}
 	return nil, nil, errors.New("Invalid state! No CipherStates derived yet")
 }
 
-func (s *State) ChannelBinding() []byte {
+func (s *handshakeState) ChannelBinding() []byte {
 	return s.symmState.h
 }
 
-func (s *State) PeerIdentity() *Identity {
+func (s *handshakeState) PeerIdentity() *Identity {
 	return s.remoteIdentity
 }

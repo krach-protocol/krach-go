@@ -486,12 +486,12 @@ func (c *Conn) RunClientHandshake() error {
 
 	var (
 		msg         []byte
-		state       *State
+		state       *handshakeState
 		err         error
-		csIn, csOut *CipherState
+		csIn, csOut *cipherState
 	)
 
-	state = NewState(&Config{
+	state = newState(&handshakeConfig{
 		Initiator:     true,
 		LocalIdentity: c.config.LocalIdentity,
 	})
@@ -564,10 +564,10 @@ func (c *Conn) RunClientHandshake() error {
 
 func (c *Conn) RunServerHandshake() error {
 	var (
-		csOut, csIn *CipherState
+		csOut, csIn *cipherState
 	)
 
-	hs := NewState(&Config{
+	hs := newState(&handshakeConfig{
 		Initiator:     false,
 		LocalIdentity: c.config.LocalIdentity,
 	})
