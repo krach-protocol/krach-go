@@ -1,6 +1,6 @@
 module github.com/connctd/krach
 
-go 1.12
+go 1.13
 
 require (
 	github.com/iost-official/ed25519 v0.0.0-20180407040355-dc8c80d0266f
