@@ -22,7 +22,7 @@ type halfConn struct {
 
 const (
 	uint16Size = 2  // uint16 takes 2 bytes
-	macSize    = 16 // GCM and Poly1305 add 16 byte MACs
+	macSize    = 16 // Poly1305 add 16 byte MACs
 )
 
 func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
@@ -66,7 +66,7 @@ func (h *halfConn) decryptIfNeeded(b *buffer) (off, length int, err error) {
 	if h.cs != nil {
 		payload, err = h.cs.Decrypt(payload[:0], b.data[:uint16Size], payload)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("Failed to decrypt received payload in halfconn: %w", err)
 		}
 		if len(payload) < uint16Size {
 			return 0, 0, errors.New("too small packet data")
