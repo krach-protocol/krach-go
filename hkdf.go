@@ -1,6 +1,8 @@
-// https://github.com/flynn/noise
+package krach
 
 /*
+Taken from https://github.com/flynn/noise
+
 Flynn® is a trademark of Prime Directive, Inc.
 
 Copyright (c) 2015 Prime Directive, Inc. All rights reserved.
@@ -31,7 +33,6 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-package krach
 
 import (
 	"crypto/hmac"
