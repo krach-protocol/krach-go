@@ -7,21 +7,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-// PacketType represents the type of a packet as unsigned 8 bit integer
-type PacketType uint8
+// packetType represents the type of a packet as unsigned 8 bit integer
+type packetType uint8
 
 // Byte returns the representation of the packet type as a single byte
-func (p PacketType) Byte() byte {
+func (p packetType) Byte() byte {
 	return byte(p)
 }
 
 // Known packet types are defined here
 const (
-	PacketTypeInvalid               PacketType = 0x00
-	PacketTypeHandshakeInit         PacketType = 0x01
-	PacketTypeHandshakeInitResponse PacketType = 0x02
-	PacketTypeHandshakeFin          PacketType = 0x03
-	PacketTypeTransport             PacketType = 0x10
+	packetTypeInvalid               packetType = 0x00
+	packetTypeHandshakeInit         packetType = 0x01
+	packetTypeHandshakeInitResponse packetType = 0x02
+	packetTypeHandshakeFin          packetType = 0x03
+	packetTypeTransport             packetType = 0x10
 )
 
 type packet struct {
@@ -42,8 +42,8 @@ func (p *packet) Version() byte {
 	return p.Buf[0]
 }
 
-func (p *packet) Type() PacketType {
-	return PacketType(p.Buf[1])
+func (p *packet) Type() packetType {
+	return packetType(p.Buf[1])
 }
 
 type handshakeInitPacket struct {
@@ -94,7 +94,7 @@ func composeHandshakeInitPacket() *handshakeInitPacket {
 	// 1 byte for the version, 1 for the packet type, 32 for the ephemeral public key
 	buf := make([]byte, 34, 34)
 	buf[0] = KrachVersion
-	buf[1] = PacketTypeHandshakeInit.Byte()
+	buf[1] = packetTypeHandshakeInit.Byte()
 	return &handshakeInitPacket{
 		packet: packet{
 			Buf: buf,
@@ -117,7 +117,7 @@ func handshakeResponseFromBuf(buf []byte) *handshakeResponsePacket {
 func composeHandshakeResponse() *handshakeResponsePacket {
 	buf := make([]byte, 34)
 	buf[0] = KrachVersion
-	buf[1] = PacketTypeHandshakeInitResponse.Byte()
+	buf[1] = packetTypeHandshakeInitResponse.Byte()
 	return &handshakeResponsePacket{
 		packet: packet{
 			Buf: buf,
@@ -201,7 +201,7 @@ type handshakeFinPacket struct {
 func composeHandshakeFinPacket() *handshakeFinPacket {
 	buf := make([]byte, 6)
 	buf[0] = KrachVersion
-	buf[1] = PacketTypeHandshakeFin.Byte()
+	buf[1] = packetTypeHandshakeFin.Byte()
 
 	return &handshakeFinPacket{
 		packet: packet{
