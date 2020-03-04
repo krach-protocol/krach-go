@@ -14,15 +14,15 @@ func TestPacketTypes(t *testing.T) {
 	pktBuf[0] = KrachVersion
 	pktBuf[1] = PacketTypeHandshakeInit.Byte()
 
-	pkt := PacketFromBuf(pktBuf)
+	pkt := packetFromBuf(pktBuf)
 	assert.Equal(t, pkt.Type(), PacketTypeHandshakeInit)
 
-	handshakeInit := HandshakeInitPacket{*pkt}
+	handshakeInit := handshakeInitPacket{*pkt}
 	handshakeInit.Type()
 }
 
 func TestHandshakeResponsePacket(t *testing.T) {
-	handshakeResponse := ComposeHandshakeResponse()
+	handshakeResponse := composeHandshakeResponse()
 
 	var randomBytes [32]byte
 	rand.Read(randomBytes[:])
@@ -52,7 +52,7 @@ func TestHandshakeResponsePacket(t *testing.T) {
 }
 
 func TestHandshakeFinPacket(t *testing.T) {
-	handshakeFin := ComposeHandshakeFinPacket()
+	handshakeFin := composeHandshakeFinPacket()
 	randomCertBytes := make([]byte, 127)
 	rand.Read(randomCertBytes)
 	randomPayloadBytes := make([]byte, 95)

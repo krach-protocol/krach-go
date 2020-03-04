@@ -496,7 +496,7 @@ func (c *Conn) RunClientHandshake() error {
 		LocalIdentity: c.config.LocalIdentity,
 	})
 
-	hsInit := ComposeHandshakeInitPacket()
+	hsInit := composeHandshakeInitPacket()
 	err = state.WriteMessage(hsInit, nil)
 	if err != nil {
 		return err
@@ -516,7 +516,7 @@ func (c *Conn) RunClientHandshake() error {
 	inBlock := c.in.newBlock()
 	inBlock.reserve(len(msg))
 
-	hshkResp := HandshakeResponseFromBuf(msg)
+	hshkResp := handshakeResponseFromBuf(msg)
 	payload, err := state.ReadMessage(inBlock.data, hshkResp)
 	if err != nil {
 		c.in.freeBlock(inBlock)
@@ -532,7 +532,7 @@ func (c *Conn) RunClientHandshake() error {
 
 	b := c.out.newBlock()
 
-	handshakeFinMsg := ComposeHandshakeFinPacket()
+	handshakeFinMsg := composeHandshakeFinPacket()
 	if err = state.WriteMessage(handshakeFinMsg, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
@@ -576,7 +576,7 @@ func (c *Conn) RunServerHandshake() error {
 		return err
 	}
 
-	hndInit := HandshakeInitFromBuf(c.hand.Next(c.hand.Len()))
+	hndInit := handshakeInitFromBuf(c.hand.Next(c.hand.Len()))
 	_, err := hs.ReadMessage(nil, hndInit)
 
 	if err != nil {
@@ -585,7 +585,7 @@ func (c *Conn) RunServerHandshake() error {
 
 	b := c.out.newBlock()
 
-	hndResp := ComposeHandshakeResponse()
+	hndResp := composeHandshakeResponse()
 	if err = hs.WriteMessage(hndResp, pad(c.config.Payload)); err != nil {
 		c.out.freeBlock(b)
 		return err
@@ -605,7 +605,7 @@ func (c *Conn) RunServerHandshake() error {
 	data := c.hand.Next(c.hand.Len())
 	inBlock.reserve(len(data))
 
-	hndFin := HandshakeFinFromBuf(data)
+	hndFin := handshakeFinFromBuf(data)
 	payload, err := hs.ReadMessage(nil, hndFin)
 	c.in.freeBlock(inBlock)
 
