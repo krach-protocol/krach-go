@@ -13,16 +13,6 @@ const (
 
 const errPrefix = "krach: "
 
-// Some constants for packet sizing
-const (
-	// MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
-	MaxPacketLength   = 508  // 576 bytes minimum IPv4 reassembly buffer - 60 bytes max IP header - 8 bytes UDP header
-	MinPacketLength   = 1    // Every packet smaller than this can only be invalid
-	MaxV6PacketLength = 1212 // 1280 bytes - 60 bytes IPv6 header - 8 bytes UDP header
-	HeaderLen         = 10   // Header length in bytes
-	AuthTagLen        = 16   // Length of the AuthenticationTag in bytes
-)
-
 var (
 	// A timeout error which should be similar enough to the timeout error used in the net package.
 	timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
