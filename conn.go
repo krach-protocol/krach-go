@@ -74,7 +74,6 @@ type Conn struct {
 	// to wait for the handshake can wait on this, under handshakeMutex.
 	handshakeCond  *sync.Cond
 	channelBinding []byte
-	HandshakeData  []byte
 	config         ConnectionConfig
 
 	certPool CertPool
