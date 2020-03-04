@@ -17,14 +17,20 @@ import (
 	"github.com/smolcert/smolcert"
 )
 
+// MaxPayloadSize is the maximal size for the payload of transport packets
 const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
 
+// VerifyCallbackFunc is used to verify that the identity and transmitted payload are valid for this connection.
+// If an  error is returned the handshake is canceled and the connection closed.
 type VerifyCallbackFunc func(publicKey *Identity, data []byte) error
 
+// CertPool Is the interface definition for implementors providing the capability to validate certificates
+// against a PKI. If more detailed or additional validations are needed VerifyCallbackFunc can be used.
 type CertPool interface {
 	Validate(cert *smolcert.Certificate) error
 }
 
+// ConnectionConfig provides configuration details for the Dial and Listen
 type ConnectionConfig struct {
 	isClient bool
 	Payload  []byte //additional certificates, configuration
@@ -44,6 +50,7 @@ type ConnectionConfig struct {
 	VerifyCallback VerifyCallbackFunc
 }
 
+// ConnectionInfo represents information about the specific connection
 type ConnectionInfo struct {
 	Name          string
 	Index         byte
@@ -54,6 +61,7 @@ type ConnectionInfo struct {
 
 // locking logic has been copied from the original TLS.conn
 
+// Conn represents a transport encrypted connection between to endpoints
 type Conn struct {
 	conn net.Conn
 
@@ -116,6 +124,7 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
+// ConnectionState returns a tls compatible state of this connection
 func (c *Conn) ConnectionState() tls.ConnectionState {
 
 	data := &struct {
@@ -130,6 +139,7 @@ func (c *Conn) ConnectionState() tls.ConnectionState {
 	}
 }
 
+// ChannelBinding returns a unique identifier for this connection. This identifier is derived during the handshake.
 func (c *Conn) ChannelBinding() []byte {
 	return c.channelBinding
 }
@@ -138,6 +148,7 @@ var (
 	errClosed = errors.New("tls: use of closed connection")
 )
 
+// Write writes data to the underlying connnection
 func (c *Conn) Write(b []byte) (int, error) {
 	// interlock with Close below
 	for {
@@ -176,7 +187,7 @@ func (c *Conn) writePacket(data []byte) (int, error) {
 	return c.writePacketLocked(data)
 }
 
-//InitializePacket adds additional sub-messages if needed
+// InitializePacket adds additional sub-messages if needed
 func (c *Conn) InitializePacket() *buffer {
 	block := c.out.newBlock()
 	block.resize(uint16Size)
@@ -455,10 +466,10 @@ func (c *Conn) Handshake() error {
 	}
 
 	if c.config.isClient {
-		c.handshakeErr = c.RunClientHandshake()
+		c.handshakeErr = c.runClientHandshake()
 		doneChan <- struct{}{}
 	} else {
-		c.handshakeErr = c.RunServerHandshake()
+		c.handshakeErr = c.runServerHandshake()
 		doneChan <- struct{}{}
 		if c.handshakeErr != nil {
 			//fmt.Println(c.handshakeErr)
@@ -482,7 +493,7 @@ func (c *Conn) Handshake() error {
 	return c.handshakeErr
 }
 
-func (c *Conn) RunClientHandshake() error {
+func (c *Conn) runClientHandshake() error {
 
 	var (
 		msg         []byte
@@ -562,7 +573,7 @@ func (c *Conn) RunClientHandshake() error {
 	return nil
 }
 
-func (c *Conn) RunServerHandshake() error {
+func (c *Conn) runServerHandshake() error {
 	var (
 		csOut, csIn *cipherState
 	)
