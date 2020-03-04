@@ -135,6 +135,9 @@ func (c *Conn) ConnectionState() tls.ConnectionState {
 
 	bytes, _ := json.Marshal(data)
 	return tls.ConnectionState{
+		ServerName:        c.config.PeerStatic.Subject,
+		HandshakeComplete: true,
+		// Used CipherSuite is not specified in crypto.tls since Blake2S is not supported by TLS
 		TLSUnique: bytes,
 	}
 }
