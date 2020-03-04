@@ -50,15 +50,6 @@ type ConnectionConfig struct {
 	VerifyCallback VerifyCallbackFunc
 }
 
-// ConnectionInfo represents information about the specific connection
-type ConnectionInfo struct {
-	Name          string
-	Index         byte
-	PeerKey       []byte
-	ServerPublic  []byte
-	HandshakeHash []byte
-}
-
 // locking logic has been copied from the original TLS.conn
 
 // Conn represents a transport encrypted connection between to endpoints
@@ -83,7 +74,6 @@ type Conn struct {
 	// to wait for the handshake can wait on this, under handshakeMutex.
 	handshakeCond  *sync.Cond
 	channelBinding []byte
-	connectionInfo []byte
 	HandshakeData  []byte
 	config         ConnectionConfig
 
@@ -646,17 +636,6 @@ func (c *Conn) runServerHandshake() error {
 	c.in.padding, c.out.padding = c.config.Padding, c.config.Padding
 	c.channelBinding = hs.ChannelBinding()
 	c.config.PeerStatic = hs.PeerIdentity()
-
-	// TODO run additional verify callback with payload
-
-	/*info := &ConnectionInfo{
-		Name: "Noise",
-		//Index:         index,
-		PeerKey:       hs.PeerStatic(),
-		HandshakeHash: hs.ChannelBinding(),
-		ServerPublic:  c.myKeys.Public,
-	}
-	c.connectionInfo, err = json.MarshalIndent(info, " ", "	")*/
 
 	if err != nil {
 		return err
