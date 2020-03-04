@@ -65,7 +65,7 @@ func TestOverallLocalConnection(t *testing.T) {
 		assert.NotEmpty(t, serverConn)
 		defer serverConn.Close()
 		if krachConn, ok := serverConn.(*Conn); !ok {
-			t.Fatalf("We somehow got a wrong net.Conn implementation. Should never be possible")
+			panic("We somehow got a wrong net.Conn implementation. Should never be possible")
 			return
 		} else {
 			require.NoError(t, krachConn.Handshake())
