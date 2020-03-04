@@ -1,7 +1,3 @@
-/*
-This package should contain a minimal and easy to port implementation of the XX
-Noiseprotocol handshake pattern.
-*/
 package krach
 
 import (
@@ -21,7 +17,8 @@ import (
 )
 
 const (
-	MaxMsgLen = 65535
+	// maxMsgLen is the maximum number of bytes transmittable in one message
+	maxMsgLen = 65535
 
 	dhLen = 32
 )
