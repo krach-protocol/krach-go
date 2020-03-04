@@ -74,16 +74,16 @@ func (s *cipherState) Decrypt(out, ad, ciphertext []byte) ([]byte, error) {
 	return out, err
 }
 
-func (s *cipherState) GenerateKeypair(random io.Reader) (DHKey, error) {
+func (s *cipherState) GenerateKeypair(random io.Reader) (dhKey, error) {
 	var pubkey, privkey [32]byte
 	if random == nil {
 		random = rand.Reader
 	}
 	if _, err := io.ReadFull(random, privkey[:]); err != nil {
-		return DHKey{}, fmt.Errorf("Failed too generate enough random bytes for private key: %w", err)
+		return dhKey{}, fmt.Errorf("Failed too generate enough random bytes for private key: %w", err)
 	}
 	curve25519.ScalarBaseMult(&pubkey, &privkey)
-	return DHKey{Private: privkey, Public: pubkey}, nil
+	return dhKey{Private: privkey, Public: pubkey}, nil
 }
 
 func (s *cipherState) DH(privkey, pubkey [32]byte) []byte {
@@ -219,7 +219,7 @@ func (s *symmetricState) Rollback() {
 	copy(s.h, s.prevH)
 }
 
-type DHKey struct {
+type dhKey struct {
 	Private [32]byte
 	Public  [32]byte
 }
@@ -413,7 +413,7 @@ type handshakeState struct {
 	writeOperations []writeOperation
 	readOperations  []readOperation
 
-	ephemeralDHKey        DHKey
+	ephemeralDHKey        dhKey
 	symmState             *symmetricState
 	localIdentity         *PrivateIdentity
 	remoteIdentity        *Identity
