@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/ed25519"
 )
 
-// SmolIdentity wraps a smolcert based certificate and provides the public
+// Identity wraps a smolcert based certificate and provides the public
 // key as curve25519 representation instead of ed25519
 type Identity struct {
 	smolcert.Certificate
@@ -31,13 +31,13 @@ func (s *Identity) Cert() *smolcert.Certificate {
 	return &s.Certificate
 }
 
-// PrivateSmolIdentity wraps a SmolIdentity and an ed25519 private key
+// PrivateIdentity wraps a SmolIdentity and an ed25519 private key
 type PrivateIdentity struct {
 	Identity
 	privKey ed25519.PrivateKey
 }
 
-// NewPrivateSmolIdentity creates a new PrivateSmolIdentity which contains the smolcert with the private key.
+// NewPrivateIdentity creates a new PrivateSmolIdentity which contains the smolcert with the private key.
 // This might be needed for cryptographic operations like eDH or eDSA etc.
 func NewPrivateIdentity(cert *smolcert.Certificate, privKey ed25519.PrivateKey) *PrivateIdentity {
 	return &PrivateIdentity{
