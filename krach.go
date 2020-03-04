@@ -56,6 +56,7 @@ func Listen(laddr string, config *ConnectionConfig, certPool CertPool) (net.List
 	}, nil
 }
 
+// Dial connects to a remote endpoint listening on the specified address
 func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, error) {
 	rawConn, err := new(net.Dialer).Dial("tcp", addr)
 	if err != nil {
