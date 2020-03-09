@@ -78,7 +78,8 @@ type Conn struct {
 	channelBinding []byte
 	config         ConnectionConfig
 
-	certPool CertPool
+	certPool     CertPool
+	maxFrameSize uint16
 }
 
 // Access to net.Conn methods.
@@ -241,8 +242,8 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 
 func (c *Conn) maxPayloadSizeForWrite(block *buffer) uint16 {
 
-	return MaxPayloadSize //TODO
-
+	//return MaxPayloadSize //TODO
+	return c.config.MaxFrameLength
 }
 
 // Read reads data from the connection.
