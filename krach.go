@@ -49,6 +49,10 @@ func Listen(laddr string, config *ConnectionConfig, certPool CertPool) (net.List
 		return nil, err
 	}
 
+	if config.MaxFrameLength == 0 {
+		config.MaxFrameLength = defaultMaxFrameSize
+	}
+
 	return &listener{
 		Listener: l,
 		config:   config,
@@ -64,6 +68,9 @@ func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, erro
 	}
 
 	config.isClient = true
+	if config.MaxFrameLength == 0 {
+		config.MaxFrameLength = defaultMaxFrameSize
+	}
 
 	return &Conn{
 		conn:     rawConn,

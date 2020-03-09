@@ -40,6 +40,8 @@ type ConnectionConfig struct {
 	PeerStatic *Identity
 	// Padding is the amount of bytes to pad messages with
 	Padding uint16
+	// MaxFrameLength specifies the maximum length a frame can have. This may depend on the MTU etc.
+	MaxFrameLength uint16
 	// ReadTimeout sets a deadline to every read operation
 	ReadTimeout time.Duration
 	// WriteTimeout sets a deadline to every write operation
