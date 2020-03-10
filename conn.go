@@ -213,10 +213,10 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 			m = int(maxPayloadSize)
 		}
 		if c.out.cs != nil {
-			packet.reserve(uint16Size + uint16Size + m + macSize)
-			packet.resize(uint16Size + uint16Size + m)
-			copy(packet.data[uint16Size+uint16Size:], data[:m])
-			binary.BigEndian.PutUint16(packet.data[uint16Size:], uint16(m))
+			packet.reserve(uint16Size + m + macSize)
+			packet.resize(uint16Size + m)
+			binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize)
+			copy(packet.data[uint16Size:], data[:m])
 		} else {
 			packet.resize(len(packet.data) + len(data))
 			copy(packet.data[uint16Size:len(packet.data)], data[:m])
@@ -324,7 +324,7 @@ func (c *Conn) readPacket() error {
 	if c.config.ReadTimeout.Nanoseconds() > 0 {
 		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
 	}
-	if err := b.readFromUntil(c.conn, uint16Size+n); err != nil {
+	if err := b.readFromUntil(c.conn, n); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}

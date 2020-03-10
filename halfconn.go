@@ -34,7 +34,7 @@ func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
 			panic("data is too big to be sent")
 		}
 
-		binary.BigEndian.PutUint16(block.data, uint16(payloadSize))
+		//binary.BigEndian.PutUint16(block.data, uint16(payloadSize))
 		block.data = h.cs.Encrypt(block.data[:uint16Size], block.data[:uint16Size], block.data[uint16Size:])
 
 		return block.data
@@ -44,7 +44,8 @@ func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
 		panic("data is too big to be sent")
 	}
 
-	binary.BigEndian.PutUint16(block.data, uint16(len(block.data)-uint16Size))
+	// Not necessary, the length of data is set in conn.go
+	//binary.BigEndian.PutUint16(block.data, uint16(len(block.data)-uint16Size))
 
 	return block.data
 }
@@ -72,14 +73,15 @@ func (h *halfConn) decryptIfNeeded(b *buffer) (off, length int, err error) {
 			return 0, 0, errors.New("too small packet data")
 		}
 
-		dataLen := binary.BigEndian.Uint16(payload)
+		//dataLen := binary.BigEndian.Uint16(payload)
 		//fmt.Println("decrypt len", dataLen)
+		dataLen := len(payload)
 
-		if dataLen > (uint16(len(payload))) {
-			return 0, 0, errors.New(fmt.Sprintf("invalid packet data: %d %d", dataLen, len(payload)))
+		if int(packetLen-macSize) != dataLen {
+			return 0, 0, fmt.Errorf("invalid packet data: %d %d", dataLen, len(payload))
 		}
-		b.resize(uint16Size + uint16Size + int(dataLen))
-		return uint16Size + uint16Size, int(dataLen), nil
+		b.resize(uint16Size + int(dataLen))
+		return uint16Size, int(dataLen), nil
 	}
 
 	return uint16Size, len(payload), nil
