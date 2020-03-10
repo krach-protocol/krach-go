@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -40,6 +41,9 @@ func TestMain(m *testing.M) {
 
 func TestOverallLocalConnection(t *testing.T) {
 	testMsg := []byte("Case schloss die Augen. Fand den geriffelten EIN-Schalter.")
+	randData := make([]byte, 2000)
+	rand.Read(randData)
+	testMsg = append(testMsg, randData...)
 	serverCert, serverKey, err := smolcert.SignedCertificate(
 		"krachTestServer", 2, time.Now().Add(time.Minute*-1),
 		time.Now().Add(time.Hour), nil, rootKey, rootCert.Subject,
@@ -71,8 +75,8 @@ func TestOverallLocalConnection(t *testing.T) {
 			require.NoError(t, krachConn.Handshake())
 		}
 
-		recvBuf := make([]byte, 1024)
-		n, err := serverConn.Read(recvBuf)
+		recvBuf := make([]byte, len(testMsg))
+		n, err := io.ReadFull(serverConn, recvBuf)
 		require.NoError(t, err)
 		assert.Equal(t, len(testMsg), n)
 		assert.Equal(t, testMsg, recvBuf[:n])
@@ -171,25 +175,38 @@ func BenchmarkKrachHandshake(b *testing.B) {
 func runThroughput(b *testing.B, serverConn net.Conn, clientConn *Conn, msg []byte, msgCount int) {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
+	totalExpectedBytes := len(msg) * msgCount
 	go func() {
 		defer wg.Done()
+		receivedBytes := 0
 		recvBuf := make([]byte, 1500)
 		i := 0
-		for n, err := serverConn.Read(recvBuf); i < msgCount; n, err = serverConn.Read(recvBuf) {
-			require.NoError(b, err, "Failed to read message %d", i+1)
-			assert.Equal(b, len(msg), n, "At message %d", i+1)
+		for n, err := serverConn.Read(recvBuf); ; n, err = serverConn.Read(recvBuf) {
+			receivedBytes += n
 			i++
+			if receivedBytes >= totalExpectedBytes {
+				break
+			}
+			if err == io.EOF {
+				// Connection has been closed
+				break
+			}
+			require.NoError(b, err, "Failed to read message %d", i+1)
 		}
-		require.Equal(b, msgCount, i)
+		assert.EqualValues(b, totalExpectedBytes, receivedBytes)
 	}()
 
 	var totalBytes int64
-	for i := 0; i <= msgCount; i++ {
+	var i int
+	for i = 0; i < msgCount; i++ {
 		n, err := clientConn.Write(msg)
-		require.NoError(b, err, "After %d messages", i)
+		require.NoError(b, err, "After %d messages in iteration %d", i, b.N)
+		// Assert that we have written all bytes successfully, no matter the actual frame size
 		assert.Equal(b, len(msg), n)
-		totalBytes = totalBytes + int64(n)
+		totalBytes += int64(n)
 	}
+	assert.EqualValues(b, msgCount, i)
+	assert.EqualValues(b, totalExpectedBytes, totalBytes)
 	wg.Wait()
 	b.SetBytes(totalBytes)
 }
