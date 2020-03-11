@@ -16,9 +16,3 @@ const (
 
 	defaultStreamID = uint8(0)
 )
-
-type frame struct {
-	streamID uint8
-	length   uint16
-	buf      *buffer
-}
