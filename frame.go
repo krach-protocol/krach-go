@@ -12,7 +12,8 @@ const (
 	// Educated guesstimate of how much bytes are used by the Ethernet header, IP header and TCP header
 	ipTCPOverhead = 78
 
-	defaultMaxFrameSize = maxMTU - (ipTCPOverhead + frameOverhead)
+	// Allow to spread frames over two TCP packets
+	defaultMaxFrameSize = 2 * (maxMTU - (2*ipTCPOverhead + frameOverhead))
 
 	defaultStreamID = uint8(0)
 )
