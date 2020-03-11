@@ -171,7 +171,7 @@ func (c *Conn) Write(b []byte) (int, error) {
 		return 0, errors.New("internal error")
 	}
 
-	n, err := c.writePacketLocked(b)
+	n, err := c.writePacketLocked(b, defaultStreamID)
 	return n, c.out.setErrorLocked(err)
 }
 
@@ -179,7 +179,8 @@ func (c *Conn) writePacket(data []byte) (int, error) {
 	c.out.Lock()
 	defer c.out.Unlock()
 
-	return c.writePacketLocked(data)
+	// streamID should be ignored for handshake packets anyway
+	return c.writePacketLocked(data, defaultStreamID)
 }
 
 // InitializePacket adds additional sub-messages if needed
@@ -189,7 +190,7 @@ func (c *Conn) InitializePacket() *buffer {
 	return block
 }
 
-func (c *Conn) writePacketLocked(data []byte) (int, error) {
+func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 
 	var n int
 
@@ -204,10 +205,12 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 			m = int(maxPayloadSize)
 		}
 		if c.out.cs != nil {
-			packet.reserve(uint16Size + m + macSize)
-			packet.resize(uint16Size + m)
-			binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize)
-			copy(packet.data[uint16Size:], data[:m])
+			packet.reserve(uint16Size + streamIDSize + m + macSize)
+			packet.resize(uint16Size + streamIDSize + m)
+			binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize)
+			// Add streamID to to be encrypted data.
+			packet.data[2] = streamID
+			copy(packet.data[uint16Size+streamIDSize:], data[:m])
 		} else {
 			packet.resize(len(packet.data) + len(data))
 			copy(packet.data[uint16Size:len(packet.data)], data[:m])
@@ -331,6 +334,14 @@ func (c *Conn) readPacket() error {
 	off, length, err := c.in.decryptIfNeeded(b)
 
 	b.off = off
+	if c.in.cs != nil {
+		// If we have an encrypted frame, it is prefixed by a streamID
+		streamID := b.data[2]
+		if streamID != defaultStreamID {
+			panic(fmt.Sprintf("Received unexpected steamID %d", streamID))
+		}
+		b.off = off + streamIDSize
+	}
 
 	data := b.data[off : off+length]
 	if err != nil {
