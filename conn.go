@@ -193,15 +193,6 @@ func (c *Conn) writePacketLocked(data []byte) (int, error) {
 
 	var n int
 
-	if len(data) == 0 { //special case to answer when everything is ok during handshake
-		if c.config.WriteTimeout.Nanoseconds() > 0 {
-			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
-		}
-		if _, err := c.conn.Write(make([]byte, 2)); err != nil {
-			return 0, err
-		}
-	}
-
 	for len(data) > 0 {
 
 		m := len(data)
