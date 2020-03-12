@@ -80,6 +80,9 @@ type Conn struct {
 
 	certPool     CertPool
 	maxFrameSize uint16
+
+	streams        []*Stream
+	streamWriteMtx *sync.Mutex
 }
 
 // Access to net.Conn methods.
@@ -175,6 +178,64 @@ func (c *Conn) Write(b []byte) (int, error) {
 	return n, c.out.setErrorLocked(err)
 }
 
+func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
+	// The data is expected to be split into appropriate frame payload sizes
+	// interlock with Close below
+	for {
+		x := atomic.LoadInt32(&c.activeCall)
+		if x&1 != 0 {
+			return 0, errClosed
+		}
+		if atomic.CompareAndSwapInt32(&c.activeCall, x, x+2) {
+			defer atomic.AddInt32(&c.activeCall, -2)
+			break
+		}
+	}
+
+	if err := c.Handshake(); err != nil {
+		return 0, err
+	}
+
+	c.out.Lock()
+	defer c.out.Unlock()
+	if err := c.out.err; err != nil {
+		return 0, err
+	}
+
+	if !c.handshakeComplete {
+		return 0, errors.New("internal error")
+	}
+
+	c.streamWriteMtx.Lock()
+	defer c.streamWriteMtx.Unlock()
+
+	packet := c.InitializePacket()
+
+	if c.out.cs == nil {
+		panic("Trying to write a frame, but the outgoing cipher state is not initialized")
+	}
+	m := len(data)
+
+	packet.reserve(uint16Size + streamIDSize + m + macSize)
+	packet.resize(uint16Size + streamIDSize + m)
+	binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize)
+	packet.data[2] = streamID
+	copy(packet.data[uint16Size+streamIDSize:], data[:m])
+
+	b := c.out.encryptIfNeeded(packet)
+	c.out.freeBlock(packet)
+
+	if c.config.WriteTimeout.Nanoseconds() > 0 {
+		c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+	}
+	if n, err = c.conn.Write(b); err != nil {
+		return n, err
+	}
+	// TODO signal next stream
+	c.notifyNextStreamWrite(streamID)
+	return
+}
+
 func (c *Conn) writePacket(data []byte) (int, error) {
 	c.out.Lock()
 	defer c.out.Unlock()
@@ -234,9 +295,29 @@ func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 	return n, nil
 }
 
+func (c *Conn) notifyNextStreamWrite(streamID uint8) {
+	for i := streamID; i < math.MaxUint8; i++ {
+		if s := c.streams[i]; s != nil && s.hasData {
+			s.writeMtx.Unlock()
+			return
+		}
+	}
+	// Wrap around
+	for i := 0; i < int(streamID); i++ {
+		if s := c.streams[i]; s != nil && s.hasData {
+			s.writeMtx.Unlock()
+			return
+		}
+	}
+}
+
 func (c *Conn) maxPayloadSizeForWrite(block *buffer) uint16 {
 
 	//return MaxPayloadSize //TODO
+	return c.config.MaxFrameLength
+}
+
+func (c *Conn) maxPayloadSizeForFrame() uint16 {
 	return c.config.MaxFrameLength
 }
 
