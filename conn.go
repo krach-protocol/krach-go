@@ -83,6 +83,9 @@ type Conn struct {
 
 	streams        []*Stream
 	streamWriteMtx *sync.Mutex
+
+	currentWritingStream int32
+	lastWritingStream    int32
 }
 
 // Access to net.Conn methods.
@@ -178,8 +181,21 @@ func (c *Conn) Write(b []byte) (int, error) {
 	return n, c.out.setErrorLocked(err)
 }
 
+func (c *Conn) pleaseWrite() {
+	// Return true if no one else is currently writing
+	if atomic.LoadInt32(&c.currentWritingStream) == -1 {
+		c.notifyNextStreamWrite(uint8(atomic.LoadInt32(&c.lastWritingStream)))
+	}
+}
+
 func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
 	// The data is expected to be split into appropriate frame payload sizes
+
+	// Store the stream which is currently writing to the underlying connection
+	atomic.StoreInt32(&c.currentWritingStream, int32(streamID))
+	// Signal that no stream is writing to this connection currently
+	defer atomic.StoreInt32(&c.currentWritingStream, -1)
+
 	// interlock with Close below
 	for {
 		x := atomic.LoadInt32(&c.activeCall)
@@ -232,6 +248,7 @@ func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
 		return n, err
 	}
 	// TODO signal next stream
+	atomic.StoreInt32(&c.lastWritingStream, int32(streamID))
 	c.notifyNextStreamWrite(streamID)
 	return
 }
@@ -297,14 +314,14 @@ func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 
 func (c *Conn) notifyNextStreamWrite(streamID uint8) {
 	for i := streamID; i < math.MaxUint8; i++ {
-		if s := c.streams[i]; s != nil && s.hasData {
+		if s := c.streams[i]; s != nil && s.hasData() {
 			s.writeMtx.Unlock()
 			return
 		}
 	}
 	// Wrap around
 	for i := 0; i < int(streamID); i++ {
-		if s := c.streams[i]; s != nil && s.hasData {
+		if s := c.streams[i]; s != nil && s.hasData() {
 			s.writeMtx.Unlock()
 			return
 		}
@@ -370,6 +387,71 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	}
 
 	return n, err
+}
+
+func (c *Conn) readInternal() error {
+	if c.in.cs == nil {
+		panic("Trying to read encrypted frame, but incoming cipherstate is uninitialized")
+	}
+
+	if c.rawInput == nil {
+		c.rawInput = c.in.newBlock()
+	}
+	b := c.rawInput
+
+	if c.config.ReadTimeout.Nanoseconds() > 0 {
+		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+	}
+	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
+
+		if e, ok := err.(net.Error); !ok || !e.Temporary() {
+			c.in.setErrorLocked(err)
+		}
+		return err
+	}
+
+	n := int(binary.BigEndian.Uint16(b.data))
+
+	if c.config.ReadTimeout.Nanoseconds() > 0 {
+		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+	}
+	if err := b.readFromUntil(c.conn, n); err != nil {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+		if e, ok := err.(net.Error); !ok || !e.Temporary() {
+			c.in.setErrorLocked(err)
+		}
+		return err
+	}
+
+	//b is c.rawinput
+	b, c.rawInput = c.in.splitBlock(b, uint16Size+n)
+
+	off, length, err := c.in.decryptIfNeeded(b)
+
+	b.off = off
+	// If we have an encrypted frame, it is prefixed by a streamID
+	streamID := b.data[2]
+	if streamID != defaultStreamID {
+		panic(fmt.Sprintf("Received unexpected steamID %d", streamID))
+	}
+	b.off = off + streamIDSize
+	b.resize(off + length)
+	//data := b.data[off : off+length]
+	if err != nil {
+		c.in.setErrorLocked(err)
+		return err
+	}
+
+	stream := c.streams[streamID]
+	if stream == nil {
+		//TODO handle uninitialized stream
+	}
+	stream.input = b
+
+	// TODO notify stream
+	return c.in.err
 }
 
 // readPacket reads the next noise packet from the connection
