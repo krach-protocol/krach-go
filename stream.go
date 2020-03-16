@@ -8,6 +8,7 @@ import (
 const (
 	streamHasData uint32 = 1 << iota
 	streamWriteReady
+	streamReadReady
 )
 
 type Stream struct {
@@ -17,7 +18,8 @@ type Stream struct {
 	conn     *Conn
 	input    *buffer
 
-	state uint32
+	state     uint32
+	readState uint32
 }
 
 func newStream(streamID uint8, conn *Conn) *Stream {
@@ -46,13 +48,25 @@ func (s *Stream) clearNeedsWrite() {
 
 func (s *Stream) signalWrite() {
 	x := atomic.LoadUint32(&s.state)
-	atomic.StoreUint32(&s.state, x|streamHasData)
+	atomic.StoreUint32(&s.state, x|streamWriteReady)
 }
 
 func (s *Stream) Read(b []byte) (n int, err error) {
 	// TODO notify conn to read
-	copy(b, s.input.data[s.input.off:])
-	return 0, nil
+	for {
+		s.conn.readInternal()
+		x := atomic.LoadUint32(&s.readState)
+		if (x & streamReadReady) == streamReadReady {
+			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
+			break
+		}
+	}
+	n = copy(b, s.input.data[s.input.off:])
+	return
+}
+
+func (s *Stream) notifyReadReady() {
+	atomic.SwapUint32(&s.readState, s.readState|streamReadReady)
 }
 
 func (s *Stream) pleaseWrite() bool {

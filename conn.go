@@ -81,11 +81,26 @@ type Conn struct {
 	certPool     CertPool
 	maxFrameSize uint16
 
+	// TODO replace with more efficient linked list
 	streams        []*Stream
 	streamWriteMtx *sync.Mutex
+	streamReadMtx  *sync.Mutex
 
 	currentWritingStream int32
 	lastWritingStream    int32
+}
+
+func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
+	return &Conn{
+		conn:     netConn,
+		config:   conf,
+		certPool: certPool,
+
+		streams:              make([]*Stream, math.MaxUint8, math.MaxUint8),
+		streamWriteMtx:       &sync.Mutex{},
+		streamReadMtx:        &sync.Mutex{},
+		currentWritingStream: -1,
+	}
 }
 
 // Access to net.Conn methods.
@@ -183,8 +198,8 @@ func (c *Conn) Write(b []byte) (int, error) {
 
 func (c *Conn) pleaseWrite() {
 	// Return true if no one else is currently writing
-	if atomic.LoadInt32(&c.currentWritingStream) == -1 {
-		c.notifyNextStreamWrite(uint8(atomic.LoadInt32(&c.lastWritingStream)))
+	if s := atomic.LoadInt32(&c.currentWritingStream); s == -1 {
+		c.notifyNextStreamWrite(uint8(s))
 	}
 }
 
@@ -315,14 +330,14 @@ func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 func (c *Conn) notifyNextStreamWrite(streamID uint8) {
 	for i := streamID; i < math.MaxUint8; i++ {
 		if s := c.streams[i]; s != nil && s.hasData() {
-			s.writeMtx.Unlock()
+			s.signalWrite()
 			return
 		}
 	}
 	// Wrap around
 	for i := 0; i < int(streamID); i++ {
 		if s := c.streams[i]; s != nil && s.hasData() {
-			s.writeMtx.Unlock()
+			s.signalWrite()
 			return
 		}
 	}
@@ -390,6 +405,8 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) readInternal() error {
+	c.streamReadMtx.Lock()
+	defer c.streamReadMtx.Unlock()
 	if c.in.cs == nil {
 		panic("Trying to read encrypted frame, but incoming cipherstate is uninitialized")
 	}
@@ -433,9 +450,7 @@ func (c *Conn) readInternal() error {
 	b.off = off
 	// If we have an encrypted frame, it is prefixed by a streamID
 	streamID := b.data[2]
-	if streamID != defaultStreamID {
-		panic(fmt.Sprintf("Received unexpected steamID %d", streamID))
-	}
+
 	b.off = off + streamIDSize
 	b.resize(off + length)
 	//data := b.data[off : off+length]
@@ -449,6 +464,7 @@ func (c *Conn) readInternal() error {
 		//TODO handle uninitialized stream
 	}
 	stream.input = b
+	stream.notifyReadReady()
 
 	// TODO notify stream
 	return c.in.err

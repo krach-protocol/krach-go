@@ -33,11 +33,7 @@ func (l *listener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 
-	return &Conn{
-		conn:     c,
-		config:   *l.config,
-		certPool: l.certPool,
-	}, nil
+	return newConn(*l.config, c, l.certPool), nil
 }
 
 // Listen creates a TLS listener accepting connections on the
@@ -72,9 +68,5 @@ func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, erro
 		config.MaxFrameLength = defaultMaxFrameSize
 	}
 
-	return &Conn{
-		conn:     rawConn,
-		config:   *config,
-		certPool: certPool,
-	}, nil
+	return newConn(*config, rawConn, certPool), nil
 }
