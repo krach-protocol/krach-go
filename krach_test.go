@@ -90,12 +90,11 @@ func TestOverallLocalConnection(t *testing.T) {
 	clientConn, err := Dial(localAddr, &ConnectionConfig{
 		LocalIdentity: NewPrivateIdentity(clientCert, clientKey),
 	}, smolcert.NewCertPool(rootCert))
+	require.NoError(t, err)
+	assert.NotEmpty(t, clientConn)
 	err = clientConn.Handshake()
 	require.NoError(t, err)
 	defer clientConn.Close()
-
-	require.NoError(t, err)
-	assert.NotEmpty(t, clientConn)
 
 	n, err := clientConn.Write(testMsg)
 	require.NoError(t, err)
