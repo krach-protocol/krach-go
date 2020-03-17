@@ -43,8 +43,7 @@ func TestStreamsBasic(t *testing.T) {
 			require.NoError(t, krachConn.Handshake())
 
 			recvBuf := make([]byte, len(testMsg))
-			s := newStream(streamID, krachConn)
-			krachConn.streams[streamID] = s
+			s := krachConn.newStream(streamID)
 
 			n, err := io.ReadFull(s, recvBuf)
 			require.NoError(t, err)
@@ -64,8 +63,7 @@ func TestStreamsBasic(t *testing.T) {
 	require.NoError(t, err)
 	defer clientConn.Close()
 
-	s := newStream(streamID, clientConn)
-	clientConn.streams[streamID] = s
+	s := clientConn.newStream(streamID)
 	n, err := s.Write(testMsg)
 	require.NoError(t, err)
 	assert.EqualValues(t, len(testMsg), n)

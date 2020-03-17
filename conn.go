@@ -835,6 +835,21 @@ func (c *Conn) callVerifyCallback(id *Identity, payload []byte) error {
 	return c.config.VerifyCallback(id, payload)
 }
 
+func (c *Conn) newStream(streamID uint8) *Stream {
+	s := c.streams[streamID]
+	if s == nil {
+		s = &Stream{
+			readMtx:  &sync.Mutex{},
+			writeMtx: &sync.Mutex{},
+			id:       streamID,
+			conn:     c,
+		}
+		c.streams[streamID] = s
+	}
+
+	return s
+}
+
 func pad(payload []byte) []byte {
 	padBuf := make([]byte, 2+len(payload))
 	copy(padBuf[2:], payload)

@@ -22,15 +22,6 @@ type Stream struct {
 	readState uint32
 }
 
-func newStream(streamID uint8, conn *Conn) *Stream {
-	return &Stream{
-		readMtx:  &sync.Mutex{},
-		writeMtx: &sync.Mutex{},
-		id:       streamID,
-		conn:     conn,
-	}
-}
-
 func (s *Stream) hasData() bool {
 	x := atomic.LoadUint32(&s.state)
 	return x&streamHasData == streamHasData
