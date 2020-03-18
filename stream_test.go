@@ -2,7 +2,9 @@ package krach
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,11 +14,8 @@ import (
 )
 
 func TestStreamsBasic(t *testing.T) {
-	streamID := uint8(42)
+	baseStreamID := uint8(42)
 	testMsg := []byte("Case schloss die Augen. Fand den geriffelten EIN-Schalter.")
-	randData := make([]byte, 2000)
-	rand.Read(randData)
-	testMsg = append(testMsg, randData...)
 
 	serverCert, serverKey, err := smolcert.SignedCertificate(
 		"krachTestServer", 2, time.Now().Add(time.Minute*-1),
@@ -32,22 +31,20 @@ func TestStreamsBasic(t *testing.T) {
 	require.NotEmpty(t, l)
 	defer l.Close()
 
+	hsWg := &sync.WaitGroup{}
+	hsWg.Add(1)
+	var serverConn *Conn
 	go func() {
-		serverConn, err := l.Accept()
+		defer hsWg.Done()
+		sc, err := l.Accept()
 		require.NoError(t, err)
-		assert.NotEmpty(t, serverConn)
-		defer serverConn.Close()
-		if krachConn, ok := serverConn.(*Conn); !ok {
+		assert.NotEmpty(t, sc)
+		defer sc.Close()
+		if krachConn, ok := sc.(*Conn); !ok {
 			panic("We somehow got a wrong net.Conn implementation. Should never be possible")
 		} else {
-			require.NoError(t, krachConn.Handshake())
-
-			recvBuf := make([]byte, len(testMsg))
-			s := krachConn.newStream(streamID)
-
-			n, err := io.ReadFull(s, recvBuf)
-			require.NoError(t, err)
-			assert.EqualValues(t, len(testMsg), n)
+			serverConn = krachConn
+			require.NoError(t, serverConn.Handshake())
 		}
 	}()
 
@@ -63,8 +60,39 @@ func TestStreamsBasic(t *testing.T) {
 	require.NoError(t, err)
 	defer clientConn.Close()
 
-	s := clientConn.newStream(streamID)
-	n, err := s.Write(testMsg)
-	require.NoError(t, err)
-	assert.EqualValues(t, len(testMsg), n)
+	hsWg.Wait()
+
+	wg := &sync.WaitGroup{}
+
+	for sID := baseStreamID; sID < baseStreamID+10; sID++ {
+		wg.Add(2)
+		randData := make([]byte, 2000)
+		rand.Read(randData)
+		testMsg = append(testMsg, randData...)
+
+		go func(streamID uint8, msg []byte) {
+			defer wg.Done()
+			fmt.Printf("Starting server stream %d\n", streamID)
+			s := serverConn.newStream(streamID)
+			recvBuf := make([]byte, len(testMsg))
+			fmt.Printf("Reading on server stream %d\n", streamID)
+			n, err := io.ReadFull(s, recvBuf)
+			require.NoError(t, err, "Failed to read message on stream %d", streamID)
+			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", streamID)
+			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", streamID)
+			fmt.Printf("Done on server stream %d", streamID)
+		}(sID, testMsg)
+
+		go func(streamID uint8, msg []byte) {
+			defer wg.Done()
+			fmt.Printf("Starting client stream %d\n", streamID)
+			s := clientConn.newStream(streamID)
+			fmt.Printf("Writing to client so stream %d\n", streamID)
+			n, err := s.Write(testMsg)
+			require.NoError(t, err, "Failed to write data to stream %d", streamID)
+			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", streamID)
+			fmt.Printf("Done on client stream %d\n", streamID)
+		}(sID, testMsg)
+	}
+	wg.Wait()
 }
