@@ -237,8 +237,8 @@ func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
 		return 0, errors.New("internal error")
 	}
 
-	c.streamWriteMtx.Lock()
-	defer c.streamWriteMtx.Unlock()
+	//c.streamWriteMtx.Lock()
+	//defer c.streamWriteMtx.Unlock()
 
 	packet := c.InitializePacket()
 
@@ -461,9 +461,10 @@ func (c *Conn) readInternal() error {
 
 	stream := c.streams[streamID]
 	if stream == nil {
-		//TODO handle uninitialized stream
+		panic(fmt.Sprintf("Received data for unknown stream %d", streamID))
 	}
 	stream.input = b
+	fmt.Printf("Notifying stream %d\n", stream.id)
 	stream.notifyReadReady()
 
 	// TODO notify stream

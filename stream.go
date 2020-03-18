@@ -1,6 +1,7 @@
 package krach
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 )
@@ -43,20 +44,26 @@ func (s *Stream) signalWrite() {
 }
 
 func (s *Stream) Read(b []byte) (n int, err error) {
-	// TODO notify conn to read
+	// FIXME currently b needs to be at least Frame length
 	for {
-		s.conn.readInternal()
+		// TODO handle this error
+		if err = s.conn.readInternal(); err != nil {
+			return
+		}
 		x := atomic.LoadUint32(&s.readState)
 		if (x & streamReadReady) == streamReadReady {
+			fmt.Println("Stream read ready!")
 			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
 			break
 		}
 	}
 	n = copy(b, s.input.data[s.input.off:])
+	s.conn.in.freeBlock(s.input)
 	return
 }
 
 func (s *Stream) notifyReadReady() {
+	fmt.Println("Notifying read ready to stream")
 	atomic.SwapUint32(&s.readState, s.readState|streamReadReady)
 }
 

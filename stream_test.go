@@ -39,7 +39,6 @@ func TestStreamsBasic(t *testing.T) {
 		sc, err := l.Accept()
 		require.NoError(t, err)
 		assert.NotEmpty(t, sc)
-		defer sc.Close()
 		if krachConn, ok := sc.(*Conn); !ok {
 			panic("We somehow got a wrong net.Conn implementation. Should never be possible")
 		} else {
@@ -61,10 +60,11 @@ func TestStreamsBasic(t *testing.T) {
 	defer clientConn.Close()
 
 	hsWg.Wait()
+	defer serverConn.Close()
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+10; sID++ {
+	for sID := baseStreamID; sID < baseStreamID+1; sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000)
 		rand.Read(randData)
@@ -87,7 +87,7 @@ func TestStreamsBasic(t *testing.T) {
 			defer wg.Done()
 			fmt.Printf("Starting client stream %d\n", streamID)
 			s := clientConn.newStream(streamID)
-			fmt.Printf("Writing to client so stream %d\n", streamID)
+			fmt.Printf("Writing to client stream %d\n", streamID)
 			n, err := s.Write(testMsg)
 			require.NoError(t, err, "Failed to write data to stream %d", streamID)
 			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", streamID)
