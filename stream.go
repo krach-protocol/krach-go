@@ -2,7 +2,6 @@ package krach
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -54,7 +53,6 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
 			break
 		}
-		fmt.Printf("Calling readInternal in stream %d\n", s.id)
 		if err = s.conn.readInternal(); err != nil {
 			opErr := &net.OpError{}
 			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {

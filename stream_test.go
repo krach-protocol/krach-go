@@ -2,7 +2,6 @@ package krach
 
 import (
 	"crypto/rand"
-	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -64,7 +63,7 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+2; sID++ {
+	for sID := baseStreamID; sID < baseStreamID+200; sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000)
 		rand.Read(randData)
@@ -78,7 +77,6 @@ func TestStreamsBasic(t *testing.T) {
 			require.NoError(t, err, "Failed to read message on stream %d", s.id)
 			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", s.id)
 			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", s.id)
-			fmt.Printf("Done on server stream %d\n", s.id)
 		}(streamServer, msg)
 
 		go func(s *Stream, msg []byte) {
@@ -86,7 +84,6 @@ func TestStreamsBasic(t *testing.T) {
 			n, err := s.Write(msg)
 			require.NoError(t, err, "Failed to write data to stream %d", s.id)
 			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", s.id)
-			fmt.Printf("Done on client stream %d\n", s.id)
 		}(streamClient, msg)
 	}
 	wg.Wait()
