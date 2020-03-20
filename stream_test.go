@@ -63,7 +63,7 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+200; sID++ {
+	for sID := baseStreamID; sID < baseStreamID+10; sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000)
 		rand.Read(randData)
