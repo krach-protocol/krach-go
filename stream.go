@@ -1,7 +1,9 @@
 package krach
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 )
@@ -46,24 +48,34 @@ func (s *Stream) signalWrite() {
 func (s *Stream) Read(b []byte) (n int, err error) {
 	// FIXME currently b needs to be at least Frame length
 	for {
-		// TODO handle this error
-		if err = s.conn.readInternal(); err != nil {
-			return
-		}
+		// Check if we already have data, before running into a potential block in readInternal
 		x := atomic.LoadUint32(&s.readState)
 		if (x & streamReadReady) == streamReadReady {
-			fmt.Println("Stream read ready!")
+			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
+			break
+		}
+		fmt.Printf("Calling readInternal in stream %d\n", s.id)
+		if err = s.conn.readInternal(); err != nil {
+			opErr := &net.OpError{}
+			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
+				continue
+			}
+			return
+		}
+		x = atomic.LoadUint32(&s.readState)
+		if (x & streamReadReady) == streamReadReady {
 			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
 			break
 		}
 	}
+	// TODO lock s.input so we can modify it in readInternal
 	n = copy(b, s.input.data[s.input.off:])
 	s.conn.in.freeBlock(s.input)
+	s.input = nil
 	return
 }
 
 func (s *Stream) notifyReadReady() {
-	fmt.Println("Notifying read ready to stream")
 	atomic.SwapUint32(&s.readState, s.readState|streamReadReady)
 }
 

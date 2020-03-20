@@ -416,9 +416,8 @@ func (c *Conn) readInternal() error {
 	}
 	b := c.rawInput
 
-	if c.config.ReadTimeout.Nanoseconds() > 0 {
-		c.conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
-	}
+	// Add a read deadline so we can emulate a kind of polling behavior, fail if no data is available
+	c.conn.SetReadDeadline(time.Now().Add(time.Millisecond * 50))
 	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
 
 		if e, ok := err.(net.Error); !ok || !e.Temporary() {
@@ -463,8 +462,13 @@ func (c *Conn) readInternal() error {
 	if stream == nil {
 		panic(fmt.Sprintf("Received data for unknown stream %d", streamID))
 	}
-	stream.input = b
-	fmt.Printf("Notifying stream %d\n", stream.id)
+	if stream.input == nil {
+		stream.input = b
+	} else {
+		fmt.Printf("Stream %d still has data, appending new data\n", stream.id)
+		stream.input.reserve(len(stream.input.data) + len(b.data) - b.off)
+		stream.input.readFromUntil(b, len(b.data)-off)
+	}
 	stream.notifyReadReady()
 
 	// TODO notify stream

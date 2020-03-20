@@ -64,35 +64,30 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+1; sID++ {
+	for sID := baseStreamID; sID < baseStreamID+2; sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000)
 		rand.Read(randData)
-		testMsg = append(testMsg, randData...)
-
-		go func(streamID uint8, msg []byte) {
+		msg := append(testMsg, randData...)
+		streamServer := serverConn.newStream(sID)
+		streamClient := clientConn.newStream(sID)
+		go func(s *Stream, msg []byte) {
 			defer wg.Done()
-			fmt.Printf("Starting server stream %d\n", streamID)
-			s := serverConn.newStream(streamID)
-			recvBuf := make([]byte, len(testMsg))
-			fmt.Printf("Reading on server stream %d\n", streamID)
+			recvBuf := make([]byte, len(msg))
 			n, err := io.ReadFull(s, recvBuf)
-			require.NoError(t, err, "Failed to read message on stream %d", streamID)
-			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", streamID)
-			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", streamID)
-			fmt.Printf("Done on server stream %d", streamID)
-		}(sID, testMsg)
+			require.NoError(t, err, "Failed to read message on stream %d", s.id)
+			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", s.id)
+			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", s.id)
+			fmt.Printf("Done on server stream %d\n", s.id)
+		}(streamServer, msg)
 
-		go func(streamID uint8, msg []byte) {
+		go func(s *Stream, msg []byte) {
 			defer wg.Done()
-			fmt.Printf("Starting client stream %d\n", streamID)
-			s := clientConn.newStream(streamID)
-			fmt.Printf("Writing to client stream %d\n", streamID)
-			n, err := s.Write(testMsg)
-			require.NoError(t, err, "Failed to write data to stream %d", streamID)
-			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", streamID)
-			fmt.Printf("Done on client stream %d\n", streamID)
-		}(sID, testMsg)
+			n, err := s.Write(msg)
+			require.NoError(t, err, "Failed to write data to stream %d", s.id)
+			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", s.id)
+			fmt.Printf("Done on client stream %d\n", s.id)
+		}(streamClient, msg)
 	}
 	wg.Wait()
 }
