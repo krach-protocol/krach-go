@@ -3,8 +3,9 @@ package krach
 const (
 	maxMTU = 1500
 
-	streamIDSize = 1
-	lenFieldSize = uint16Size
+	streamIDSize  = 1
+	streamCmdSize = 1
+	lenFieldSize  = uint16Size
 
 	headerSize    = streamIDSize + lenFieldSize
 	frameOverhead = headerSize + macSize

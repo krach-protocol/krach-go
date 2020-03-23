@@ -247,11 +247,12 @@ func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
 	}
 	m := len(data)
 
-	packet.reserve(uint16Size + streamIDSize + m + macSize)
-	packet.resize(uint16Size + streamIDSize + m)
-	binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize)
+	packet.reserve(uint16Size + streamIDSize + streamCmdSize + m + macSize)
+	packet.resize(uint16Size + streamIDSize + streamCmdSize + m)
+	binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize+streamCmdSize)
 	packet.data[2] = streamID
-	copy(packet.data[uint16Size+streamIDSize:], data[:m])
+	packet.data[3] = frameCmdPSH.Byte() // Default command to send data
+	copy(packet.data[uint16Size+streamIDSize+streamCmdSize:], data[:m])
 
 	b := c.out.encryptIfNeeded(packet)
 	c.out.freeBlock(packet)
@@ -449,27 +450,35 @@ func (c *Conn) readInternal() error {
 	b.off = off
 	// If we have an encrypted frame, it is prefixed by a streamID
 	streamID := b.data[2]
+	frameCmd := b.data[3]
+	switch frameCommand(frameCmd) {
+	case frameCmdPSH:
+		b.off = off + streamIDSize + streamCmdSize
+		b.resize(off + length)
+		stream := c.streams[streamID]
+		if stream == nil {
+			panic(fmt.Sprintf("Received data for unknown stream %d", streamID))
+		}
+		if stream.input == nil {
+			stream.input = b
+		} else {
+			fmt.Printf("Stream %d still has data, appending new data\n", stream.id)
+			stream.input.reserve(len(stream.input.data) + len(b.data) - b.off)
+			stream.input.readFromUntil(b, len(b.data)-off)
+		}
+		stream.notifyReadReady()
+	case frameCmdSYN:
+		// TODO  create a new stream with the specified stream ID
+		panic("Not implemented  yet")
+	case frameCmdSYNACK:
+		// TODO mark a created stream as finally established
+		panic("Not implemented yet")
+	}
 
-	b.off = off + streamIDSize
-	b.resize(off + length)
-	//data := b.data[off : off+length]
 	if err != nil {
 		c.in.setErrorLocked(err)
 		return err
 	}
-
-	stream := c.streams[streamID]
-	if stream == nil {
-		panic(fmt.Sprintf("Received data for unknown stream %d", streamID))
-	}
-	if stream.input == nil {
-		stream.input = b
-	} else {
-		fmt.Printf("Stream %d still has data, appending new data\n", stream.id)
-		stream.input.reserve(len(stream.input.data) + len(b.data) - b.off)
-		stream.input.readFromUntil(b, len(b.data)-off)
-	}
-	stream.notifyReadReady()
 
 	// TODO notify stream
 	return c.in.err

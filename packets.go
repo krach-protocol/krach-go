@@ -32,6 +32,10 @@ const (
 	frameCmdPSH    frameCommand = 0x03
 )
 
+func (f frameCommand) Byte() byte {
+	return byte(f)
+}
+
 type packet struct {
 	Buf []byte
 }
