@@ -30,6 +30,7 @@ const (
 	frameCmdSYN    frameCommand = 0x01
 	frameCmdSYNACK frameCommand = 0x02
 	frameCmdPSH    frameCommand = 0x03
+	frameCmdFIN    frameCommand = 0x04
 )
 
 func (f frameCommand) Byte() byte {

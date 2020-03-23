@@ -473,6 +473,11 @@ func (c *Conn) readInternal() error {
 	case frameCmdSYNACK:
 		// TODO mark a created stream as finally established
 		panic("Not implemented yet")
+	case frameCmdFIN:
+		// TODO close a stream
+		panic("Not implemented yet")
+	default:
+		panic("Received invalid frame command")
 	}
 
 	if err != nil {
