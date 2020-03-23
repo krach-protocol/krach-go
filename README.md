@@ -33,3 +33,5 @@ A noise protocol based, secure protocol for the IoT. Provides multiplexing and e
 
 * 2 byte length
 * Noise protocol encrypted data
+  * 1 byte streamID
+  * Raw data
