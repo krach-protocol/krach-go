@@ -24,6 +24,14 @@ const (
 	packetTypeTransport             packetType = 0x10
 )
 
+type frameCommand uint8
+
+const (
+	frameCmdSYN    frameCommand = 0x01
+	frameCmdSYNACK frameCommand = 0x02
+	frameCmdPSH    frameCommand = 0x03
+)
+
 type packet struct {
 	Buf []byte
 }
