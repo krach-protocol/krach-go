@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -13,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/smolcert/smolcert"
 )
 
@@ -88,6 +88,8 @@ type Conn struct {
 
 	currentWritingStream int32
 	lastWritingStream    int32
+	streamsAvailable     int32
+	availableStreams     *lst
 }
 
 func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
@@ -100,6 +102,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		streamWriteMtx:       &sync.Mutex{},
 		streamReadMtx:        &sync.Mutex{},
 		currentWritingStream: -1,
+		availableStreams:     newLst(),
 	}
 }
 
@@ -203,7 +206,7 @@ func (c *Conn) pleaseWrite() {
 	}
 }
 
-func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
+func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n int, err error) {
 	// The data is expected to be split into appropriate frame payload sizes
 
 	// Store the stream which is currently writing to the underlying connection
@@ -247,12 +250,24 @@ func (c *Conn) writeInternal(data []byte, streamID uint8) (n int, err error) {
 	}
 	m := len(data)
 
-	packet.reserve(uint16Size + streamIDSize + streamCmdSize + m + macSize)
-	packet.resize(uint16Size + streamIDSize + streamCmdSize + m)
-	binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize+streamCmdSize)
-	packet.data[2] = streamID
-	packet.data[3] = frameCmdPSH.Byte() // Default command to send data
-	copy(packet.data[uint16Size+streamIDSize+streamCmdSize:], data[:m])
+	switch cmd {
+	case frameCmdSYN, frameCmdSYNACK, frameCmdFIN:
+		// Only send the command without payload
+		packet.reserve(uint16Size + streamIDSize + streamCmdSize + macSize)
+		packet.resize(uint16Size + streamIDSize + streamCmdSize)
+		binary.BigEndian.PutUint16(packet.data, macSize+streamIDSize+streamCmdSize)
+		packet.data[2] = streamID
+		packet.data[3] = cmd.Byte()
+	case frameCmdPSH:
+		packet.reserve(uint16Size + streamIDSize + streamCmdSize + m + macSize)
+		packet.resize(uint16Size + streamIDSize + streamCmdSize + m)
+		binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize+streamCmdSize)
+		packet.data[2] = streamID
+		packet.data[3] = frameCmdPSH.Byte() // Default command to send data
+		copy(packet.data[uint16Size+streamIDSize+streamCmdSize:], data[:m])
+	default:
+		panic("Received invalid stream command")
+	}
 
 	b := c.out.encryptIfNeeded(packet)
 	c.out.freeBlock(packet)
@@ -469,10 +484,16 @@ func (c *Conn) readInternal() error {
 		stream.notifyReadReady()
 	case frameCmdSYN:
 		// TODO  create a new stream with the specified stream ID
-		panic("Not implemented  yet")
+		s := c.newStream(streamID)
+		c.availableStreams.Push(s)
+		// TODO send SYNACK
+		atomic.AddInt32(&c.streamsAvailable, 1)
 	case frameCmdSYNACK:
-		// TODO mark a created stream as finally established
-		panic("Not implemented yet")
+		stream := c.streams[streamID]
+		if stream == nil {
+			panic("Invalid state, received SYNACK for non existing stream")
+		}
+		stream.setHandshakeFinished()
 	case frameCmdFIN:
 		// TODO close a stream
 		panic("Not implemented yet")
@@ -867,6 +888,49 @@ func (c *Conn) newStream(streamID uint8) *Stream {
 	}
 
 	return s
+}
+
+func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
+	if s = c.streams[streamID]; s != nil {
+		for !s.handshakeFinished() {
+
+		}
+		return s, nil
+	}
+
+	s = c.newStream(streamID)
+	c.streams[streamID] = s
+	if err := s.sendSYN(); err != nil {
+		return nil, fmt.Errorf("Failed to open stream: %w", err)
+	}
+	for !s.handshakeFinished() {
+		// FIXME, we need a timeout here...
+		// Trigger reads to the underlying connection, this might not be optimal...
+		if err = c.readInternal(); err != nil {
+			opErr := &net.OpError{}
+			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
+				continue
+			}
+		}
+	}
+	return
+}
+
+func (c *Conn) ListenStream() (s *Stream, err error) {
+	defer atomic.AddInt32(&c.streamsAvailable, -1)
+	for atomic.LoadInt32(&c.streamsAvailable) <= 0 {
+		if err = c.readInternal(); err != nil {
+			opErr := &net.OpError{}
+			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
+				continue
+			}
+			return
+		}
+	}
+	s = c.availableStreams.Pop().(*Stream)
+	err = s.sendSYNACK()
+	// TODO check if we need to do something special in this case
+	return s, err
 }
 
 func pad(payload []byte) []byte {

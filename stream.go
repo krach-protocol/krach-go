@@ -13,6 +13,10 @@ const (
 	streamReadReady
 )
 
+const (
+	streamHandshakeFinished = 1 << iota
+)
+
 type Stream struct {
 	readMtx  *sync.Mutex
 	writeMtx *sync.Mutex
@@ -20,8 +24,21 @@ type Stream struct {
 	conn     *Conn
 	input    *buffer
 
-	state     uint32
-	readState uint32
+	state          uint32
+	readState      uint32
+	handshakeState uint32
+}
+
+func (s *Stream) ID() uint8 {
+	return s.id
+}
+
+func (s *Stream) handshakeFinished() bool {
+	return atomic.LoadUint32(&s.handshakeState)&streamHandshakeFinished == streamHandshakeFinished
+}
+
+func (s *Stream) setHandshakeFinished() {
+	atomic.StoreUint32(&s.handshakeState, atomic.LoadUint32(&s.handshakeState)&streamHandshakeFinished)
 }
 
 func (s *Stream) hasData() bool {
@@ -82,6 +99,18 @@ func (s *Stream) pleaseWrite() bool {
 	return atomic.LoadUint32(&s.state)&streamWriteReady == streamWriteReady
 }
 
+func (s *Stream) sendSYN() (err error) {
+	s.signalNeedsWrite()
+	_, err = s.conn.writeInternal(s.id, frameCmdSYN, nil)
+	return
+}
+
+func (s *Stream) sendSYNACK() (err error) {
+	s.signalNeedsWrite()
+	_, err = s.conn.writeInternal(s.id, frameCmdSYNACK, nil)
+	return
+}
+
 func (s *Stream) Write(data []byte) (n int, err error) {
 
 	s.signalNeedsWrite()
@@ -100,7 +129,7 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 		// Clear write read bit, we are now writing
 		atomic.StoreUint32(&s.state, s.state^streamWriteReady)
 
-		n1, err := s.conn.writeInternal(data[:m], s.id)
+		n1, err := s.conn.writeInternal(s.id, frameCmdPSH, data[:m])
 		if err != nil {
 			return n1, err
 		}
