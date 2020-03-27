@@ -2,6 +2,7 @@ package krach
 
 import (
 	"crypto/rand"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -63,28 +64,35 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+10; sID++ {
+	for sID := baseStreamID; sID < baseStreamID+2; sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000)
 		rand.Read(randData)
 		msg := append(testMsg, randData...)
-		streamServer := serverConn.newStream(sID)
-		streamClient := clientConn.newStream(sID)
-		go func(s *Stream, msg []byte) {
+		//streamServer := serverConn.newStream(sID)
+		//streamClient := clientConn.newStream(sID)
+		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
 			recvBuf := make([]byte, len(msg))
+			s, err := serverConn.ListenStream()
+			require.NoError(t, err, "Failed to listen for stream %d", streamID)
+			fmt.Printf("Acquired stream %d, waiting for data\n", streamID)
 			n, err := io.ReadFull(s, recvBuf)
-			require.NoError(t, err, "Failed to read message on stream %d", s.id)
-			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", s.id)
-			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", s.id)
-		}(streamServer, msg)
+			require.NoError(t, err, "Failed to read message on stream %d", streamID)
+			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", streamID)
+			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", streamID)
+		}(sID, msg)
 
-		go func(s *Stream, msg []byte) {
+		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
+			s, err := clientConn.OpenStream(streamID)
+			require.NoError(t, err, "Failed to open stream %s", streamID)
+			fmt.Printf("Opened stream %d, writing data\n", streamID)
 			n, err := s.Write(msg)
-			require.NoError(t, err, "Failed to write data to stream %d", s.id)
-			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", s.id)
-		}(streamClient, msg)
+			require.NoError(t, err, "Failed to write data to stream %d", streamID)
+			fmt.Printf("Written data to steam %d\n", s.id)
+			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", streamID)
+		}(sID, msg)
 	}
 	wg.Wait()
 }

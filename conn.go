@@ -435,7 +435,11 @@ func (c *Conn) readInternal() error {
 	// Add a read deadline so we can emulate a kind of polling behavior, fail if no data is available
 	c.conn.SetReadDeadline(time.Now().Add(time.Millisecond * 50))
 	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
-
+		opErr := &net.OpError{}
+		if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
+			// 'Polling' connection resulted in noo available data
+			return nil
+		}
 		if e, ok := err.(net.Error); !ok || !e.Temporary() {
 			c.in.setErrorLocked(err)
 		}
@@ -483,16 +487,15 @@ func (c *Conn) readInternal() error {
 		}
 		stream.notifyReadReady()
 	case frameCmdSYN:
-		// TODO  create a new stream with the specified stream ID
 		s := c.newStream(streamID)
 		c.availableStreams.Push(s)
-		// TODO send SYNACK
 		atomic.AddInt32(&c.streamsAvailable, 1)
 	case frameCmdSYNACK:
 		stream := c.streams[streamID]
 		if stream == nil {
 			panic("Invalid state, received SYNACK for non existing stream")
 		}
+		fmt.Printf("Received SYNACK for stream %d, signaling handshake finished\n", streamID)
 		stream.setHandshakeFinished()
 	case frameCmdFIN:
 		// TODO close a stream
@@ -903,31 +906,31 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 	if err := s.sendSYN(); err != nil {
 		return nil, fmt.Errorf("Failed to open stream: %w", err)
 	}
-	for !s.handshakeFinished() {
+	for {
+		if s.handshakeFinished() {
+			break
+		}
+		fmt.Printf("hadshake not finished in stream %d, trying read\n", s.id)
 		// FIXME, we need a timeout here...
 		// Trigger reads to the underlying connection, this might not be optimal...
 		if err = c.readInternal(); err != nil {
-			opErr := &net.OpError{}
-			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
-				continue
-			}
+			return
+		}
+		if s.handshakeFinished() {
+			break
 		}
 	}
 	return
 }
 
 func (c *Conn) ListenStream() (s *Stream, err error) {
-	defer atomic.AddInt32(&c.streamsAvailable, -1)
 	for atomic.LoadInt32(&c.streamsAvailable) <= 0 {
 		if err = c.readInternal(); err != nil {
-			opErr := &net.OpError{}
-			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
-				continue
-			}
 			return
 		}
 	}
 	s = c.availableStreams.Pop().(*Stream)
+	atomic.AddInt32(&c.streamsAvailable, -1)
 	err = s.sendSYNACK()
 	// TODO check if we need to do something special in this case
 	return s, err

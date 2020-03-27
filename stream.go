@@ -1,8 +1,6 @@
 package krach
 
 import (
-	"errors"
-	"net"
 	"sync"
 	"sync/atomic"
 )
@@ -14,7 +12,7 @@ const (
 )
 
 const (
-	streamHandshakeFinished = 1 << iota
+	streamHandshakeFinished uint32 = 1 << iota
 )
 
 type Stream struct {
@@ -38,7 +36,7 @@ func (s *Stream) handshakeFinished() bool {
 }
 
 func (s *Stream) setHandshakeFinished() {
-	atomic.StoreUint32(&s.handshakeState, atomic.LoadUint32(&s.handshakeState)&streamHandshakeFinished)
+	atomic.StoreUint32(&s.handshakeState, streamHandshakeFinished)
 }
 
 func (s *Stream) hasData() bool {
@@ -71,10 +69,6 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 			break
 		}
 		if err = s.conn.readInternal(); err != nil {
-			opErr := &net.OpError{}
-			if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
-				continue
-			}
 			return
 		}
 		x = atomic.LoadUint32(&s.readState)
@@ -101,12 +95,20 @@ func (s *Stream) pleaseWrite() bool {
 
 func (s *Stream) sendSYN() (err error) {
 	s.signalNeedsWrite()
+	defer s.clearNeedsWrite()
+	for !s.pleaseWrite() {
+
+	}
 	_, err = s.conn.writeInternal(s.id, frameCmdSYN, nil)
 	return
 }
 
 func (s *Stream) sendSYNACK() (err error) {
 	s.signalNeedsWrite()
+	defer s.clearNeedsWrite()
+	for !s.pleaseWrite() {
+
+	}
 	_, err = s.conn.writeInternal(s.id, frameCmdSYNACK, nil)
 	return
 }

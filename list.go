@@ -1,23 +1,24 @@
 package krach
 
-import "container/list"
-
 type lst struct {
-	list.List
+	elements []interface{}
 }
 
 func newLst() *lst {
-	cl := list.New()
-	cl.Init()
-	return &lst{*cl}
+	return &lst{
+		elements: make([]interface{}, 0),
+	}
 }
 
 func (l *lst) Pop() interface{} {
-	e := l.Front()
-	l.Remove(e)
-	return e.Value
+	if len(l.elements) == 0 {
+		return nil
+	}
+	e := l.elements[0]
+	l.elements = l.elements[1:]
+	return e
 }
 
 func (l *lst) Push(e interface{}) {
-	l.PushBack(e)
+	l.elements = append(l.elements, e)
 }
