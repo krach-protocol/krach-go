@@ -481,7 +481,6 @@ func (c *Conn) readInternal() error {
 		if stream.input == nil {
 			stream.input = b
 		} else {
-			fmt.Printf("Stream %d still has data, appending new data\n", stream.id)
 			stream.input.reserve(len(stream.input.data) + len(b.data) - b.off)
 			stream.input.readFromUntil(b, len(b.data)-off)
 		}
@@ -495,7 +494,6 @@ func (c *Conn) readInternal() error {
 		if stream == nil {
 			panic("Invalid state, received SYNACK for non existing stream")
 		}
-		fmt.Printf("Received SYNACK for stream %d, signaling handshake finished\n", streamID)
 		stream.setHandshakeFinished()
 	case frameCmdFIN:
 		// TODO close a stream
@@ -910,7 +908,6 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 		if s.handshakeFinished() {
 			break
 		}
-		fmt.Printf("hadshake not finished in stream %d, trying read\n", s.id)
 		// FIXME, we need a timeout here...
 		// Trigger reads to the underlying connection, this might not be optimal...
 		if err = c.readInternal(); err != nil {
