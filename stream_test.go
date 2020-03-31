@@ -1,7 +1,6 @@
 package krach
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io"
 	"sync"
@@ -66,33 +65,39 @@ func TestStreamsBasic(t *testing.T) {
 
 	for sID := baseStreamID; sID < baseStreamID+2; sID++ {
 		wg.Add(2)
-		randData := make([]byte, 2000)
-		rand.Read(randData)
-		msg := append(testMsg, randData...)
-		//streamServer := serverConn.newStream(sID)
-		//streamClient := clientConn.newStream(sID)
+		randData := make([]byte, 2000, 2000)
+		for i := 0; i < 2000; i++ {
+			randData[i] = sID
+		}
+		//rand.Read(randData)
+		streamMsg := append(testMsg, randData...)
+
 		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
 			recvBuf := make([]byte, len(msg))
 			s, err := serverConn.ListenStream()
 			require.NoError(t, err, "Failed to listen for stream %d", streamID)
-			fmt.Printf("Acquired stream %d, waiting for data\n", streamID)
+
+			fmt.Printf("Waiting for read in stream %d\n", s.id)
 			n, err := io.ReadFull(s, recvBuf)
+			fmt.Printf("Successfully read data in stream %d\n", s.id)
 			require.NoError(t, err, "Failed to read message on stream %d", streamID)
 			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", streamID)
-			assert.EqualValues(t, recvBuf[:n], msg, "Read unexpected data on stream %d", streamID)
-		}(sID, msg)
+			assert.EqualValues(t, msg, recvBuf[:n], "Read unexpected data on stream %x", streamID)
+		}(sID, streamMsg)
 
 		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
 			s, err := clientConn.OpenStream(streamID)
 			require.NoError(t, err, "Failed to open stream %s", streamID)
-			fmt.Printf("Opened stream %d, writing data\n", streamID)
+			assert.EqualValues(t, streamID, msg[1000])
+			fmt.Printf("Blocking write in stream %d\n", s.id)
 			n, err := s.Write(msg)
+			fmt.Printf("Successfully written data in stream %d\n", s.id)
 			require.NoError(t, err, "Failed to write data to stream %d", streamID)
-			fmt.Printf("Written data to steam %d\n", s.id)
+
 			assert.EqualValues(t, len(msg), n, "Did not write enough data on stream %d", streamID)
-		}(sID, msg)
+		}(sID, streamMsg)
 	}
 	wg.Wait()
 }

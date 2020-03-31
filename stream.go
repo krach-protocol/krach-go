@@ -17,10 +17,11 @@ const (
 
 type Stream struct {
 	readMtx  *sync.Mutex
-	writeMtx *sync.Mutex
-	id       uint8
-	conn     *Conn
-	input    *buffer
+	inputMtx *sync.Mutex
+	//writeMtx *sync.Mutex
+	id    uint8
+	conn  *Conn
+	input *buffer
 
 	state          uint32
 	readState      uint32
@@ -61,31 +62,46 @@ func (s *Stream) signalWrite() {
 
 func (s *Stream) Read(b []byte) (n int, err error) {
 	// FIXME currently b needs to be at least Frame length
-	for {
-		// Check if we already have data, before running into a potential block in readInternal
-		x := atomic.LoadUint32(&s.readState)
-		if (x & streamReadReady) == streamReadReady {
-			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
-			break
-		}
+	s.inputMtx.Lock()
+	if s.input != nil && len(s.input.data) > 0 {
+		n = copy(b, s.input.data[s.input.off:])
+		s.input.off = s.input.off + n
+		s.inputMtx.Unlock()
+		return n, nil
+	}
+	s.inputMtx.Unlock()
+	for !atomic.CompareAndSwapUint32(&s.readState, streamReadReady, 0) {
 		if err = s.conn.readInternal(); err != nil {
 			return
 		}
-		x = atomic.LoadUint32(&s.readState)
-		if (x & streamReadReady) == streamReadReady {
-			defer atomic.StoreUint32(&s.readState, x^streamReadReady)
-			break
-		}
 	}
-	// TODO lock s.input so we can modify it in readInternal
+	// TODO check if we need to lock s.input so we can modify it in readInternal
+	s.inputMtx.Lock()
 	n = copy(b, s.input.data[s.input.off:])
-	s.conn.in.freeBlock(s.input)
-	s.input = nil
+	s.input.off = s.input.off + n
+	if s.input.off == len(s.input.data) {
+		s.conn.in.freeBlock(s.input)
+		s.input = nil
+	}
+	s.inputMtx.Unlock()
 	return
 }
 
+func (s *Stream) pushData(b *buffer) {
+	s.inputMtx.Lock()
+	defer s.inputMtx.Unlock()
+
+	if s.input == nil {
+		s.input = b
+	} else {
+		s.input.reserve(len(b.data) - b.off + len(s.input.data) - s.input.off)
+		s.input.readFromUntil(b, len(b.data)-b.off)
+		s.conn.in.freeBlock(b)
+	}
+}
+
 func (s *Stream) notifyReadReady() {
-	atomic.SwapUint32(&s.readState, s.readState|streamReadReady)
+	atomic.StoreUint32(&s.readState, streamReadReady)
 }
 
 func (s *Stream) pleaseWrite() bool {

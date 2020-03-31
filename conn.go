@@ -208,6 +208,9 @@ func (c *Conn) pleaseWrite() {
 
 func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n int, err error) {
 	// The data is expected to be split into appropriate frame payload sizes
+	if x := atomic.LoadInt32(&c.currentWritingStream); x != -1 {
+		return 0, errors.New("Go away, someone else is writing")
+	}
 
 	// Store the stream which is currently writing to the underlying connection
 	atomic.StoreInt32(&c.currentWritingStream, int32(streamID))
@@ -239,9 +242,6 @@ func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n i
 	if !c.handshakeComplete {
 		return 0, errors.New("internal error")
 	}
-
-	//c.streamWriteMtx.Lock()
-	//defer c.streamWriteMtx.Unlock()
 
 	packet := c.InitializePacket()
 
@@ -437,7 +437,7 @@ func (c *Conn) readInternal() error {
 	if err := b.readFromUntil(c.conn, uint16Size); err != nil {
 		opErr := &net.OpError{}
 		if ok := errors.As(err, &opErr); ok && opErr.Timeout() {
-			// 'Polling' connection resulted in noo available data
+			// 'Polling' connection resulted in no available data
 			return nil
 		}
 		if e, ok := err.(net.Error); !ok || !e.Temporary() {
@@ -470,6 +470,7 @@ func (c *Conn) readInternal() error {
 	// If we have an encrypted frame, it is prefixed by a streamID
 	streamID := b.data[2]
 	frameCmd := b.data[3]
+
 	switch frameCommand(frameCmd) {
 	case frameCmdPSH:
 		b.off = off + streamIDSize + streamCmdSize
@@ -478,12 +479,7 @@ func (c *Conn) readInternal() error {
 		if stream == nil {
 			panic(fmt.Sprintf("Received data for unknown stream %d", streamID))
 		}
-		if stream.input == nil {
-			stream.input = b
-		} else {
-			stream.input.reserve(len(stream.input.data) + len(b.data) - b.off)
-			stream.input.readFromUntil(b, len(b.data)-off)
-		}
+		stream.pushData(b)
 		stream.notifyReadReady()
 	case frameCmdSYN:
 		s := c.newStream(streamID)
@@ -881,9 +877,10 @@ func (c *Conn) newStream(streamID uint8) *Stream {
 	if s == nil {
 		s = &Stream{
 			readMtx:  &sync.Mutex{},
-			writeMtx: &sync.Mutex{},
-			id:       streamID,
-			conn:     c,
+			inputMtx: &sync.Mutex{},
+			//writeMtx: &sync.Mutex{},
+			id:   streamID,
+			conn: c,
 		}
 		c.streams[streamID] = s
 	}
