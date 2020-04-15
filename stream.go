@@ -78,11 +78,12 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	// Spin here to trigger reads on the underlying connection and wait until a read
 	// has resulted in data being read into this streams buffer
 	for !atomic.CompareAndSwapUint32(&s.readState, streamReadReady, 0) {
-		if err = s.conn.readInternal(); err != nil {
+		if err = s.conn.readInternal(s.id); err != nil {
 			return
 		}
 	}
-	// If we are here, data has become available
+	// If we are here, data has become available. Locking only to ensure that we are
+	// not racing on the buffer here
 	s.Lock()
 	n = copy(b, s.input.data[s.input.off:])
 	s.input.off = s.input.off + n

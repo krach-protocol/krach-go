@@ -76,7 +76,7 @@ func TestStreamsBasic(t *testing.T) {
 
 		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
-
+			fmt.Printf("Starting server go routine for stream %d\n", streamID)
 			recvBuf := make([]byte, len(msg))
 			s, err := serverConn.ListenStream()
 			require.NoError(t, err, "Failed to listen for stream %d", streamID)
@@ -91,6 +91,7 @@ func TestStreamsBasic(t *testing.T) {
 
 		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
+			fmt.Printf("Starting client go routine for stream %d\n", streamID)
 			s, err := clientConn.OpenStream(streamID)
 			require.NoError(t, err, "Failed to open stream %s", streamID)
 			require.EqualValues(t, streamID, msg[1000])

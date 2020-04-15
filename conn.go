@@ -90,6 +90,8 @@ type Conn struct {
 	lastWritingStream    int32
 	streamsAvailable     int32
 	availableStreams     *lst
+
+	activeReadCall int32
 }
 
 func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
@@ -103,6 +105,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		streamReadMtx:        &sync.Mutex{},
 		currentWritingStream: -1,
 		availableStreams:     newLst(),
+		activeReadCall:       -1,
 	}
 }
 
@@ -419,9 +422,17 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 	return n, err
 }
 
-func (c *Conn) readInternal() error {
-	c.streamReadMtx.Lock()
-	defer c.streamReadMtx.Unlock()
+func (c *Conn) readInternal(readingStreamID uint8) error {
+	// Not sure if this mutex is really necessary
+	//c.streamReadMtx.Lock()
+	//defer c.streamReadMtx.Unlock()
+
+	// Let's keep the streams spinning on that, so streams are not blocked after receiving data
+	if !atomic.CompareAndSwapInt32(&c.activeReadCall, -1, int32(readingStreamID)) {
+		return nil
+	}
+	defer atomic.StoreInt32(&c.activeReadCall, -1)
+
 	if c.in.cs == nil {
 		panic("Trying to read encrypted frame, but incoming cipherstate is uninitialized")
 	}
@@ -480,6 +491,7 @@ func (c *Conn) readInternal() error {
 		stream.pushData(b)
 		stream.notifyReadReady()
 		if stream.id != streamID {
+			// Stupid check to see if I have a stupid mistake in my code...
 			panic("Stream.id and streamID are not equal")
 		}
 	case frameCmdSYN:
@@ -907,7 +919,7 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 		}
 		// FIXME, we need a timeout here...
 		// Trigger reads to the underlying connection, this might not be optimal...
-		if err = c.readInternal(); err != nil {
+		if err = c.readInternal(streamID); err != nil {
 			return
 		}
 		if s.handshakeFinished() {
@@ -919,7 +931,8 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 
 func (c *Conn) ListenStream() (s *Stream, err error) {
 	for atomic.LoadInt32(&c.streamsAvailable) <= 0 {
-		if err = c.readInternal(); err != nil {
+		// Special stream id for internal purposes
+		if err = c.readInternal(0); err != nil {
 			return
 		}
 	}
