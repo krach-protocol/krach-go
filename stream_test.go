@@ -63,7 +63,9 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	for sID := baseStreamID; sID < baseStreamID+2; sID++ {
+	parallelStreams := 2
+
+	for sID := baseStreamID; sID < baseStreamID+uint8(parallelStreams); sID++ {
 		wg.Add(2)
 		randData := make([]byte, 2000, 2000)
 		for i := 0; i < 2000; i++ {
@@ -74,6 +76,7 @@ func TestStreamsBasic(t *testing.T) {
 
 		go func(streamID uint8, msg []byte) {
 			defer wg.Done()
+
 			recvBuf := make([]byte, len(msg))
 			s, err := serverConn.ListenStream()
 			require.NoError(t, err, "Failed to listen for stream %d", streamID)
@@ -90,7 +93,7 @@ func TestStreamsBasic(t *testing.T) {
 			defer wg.Done()
 			s, err := clientConn.OpenStream(streamID)
 			require.NoError(t, err, "Failed to open stream %s", streamID)
-			assert.EqualValues(t, streamID, msg[1000])
+			require.EqualValues(t, streamID, msg[1000])
 			fmt.Printf("Blocking write in stream %d\n", s.id)
 			n, err := s.Write(msg)
 			fmt.Printf("Successfully written data in stream %d\n", s.id)

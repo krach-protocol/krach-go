@@ -208,14 +208,16 @@ func (c *Conn) pleaseWrite() {
 
 func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n int, err error) {
 	// The data is expected to be split into appropriate frame payload sizes
-	if x := atomic.LoadInt32(&c.currentWritingStream); x != -1 {
+	if !atomic.CompareAndSwapInt32(&c.currentWritingStream, -1, int32(streamID)) {
 		return 0, errors.New("Go away, someone else is writing")
 	}
 
-	// Store the stream which is currently writing to the underlying connection
-	atomic.StoreInt32(&c.currentWritingStream, int32(streamID))
 	// Signal that no stream is writing to this connection currently
-	defer atomic.StoreInt32(&c.currentWritingStream, -1)
+	defer func(streamID uint8) {
+		atomic.StoreInt32(&c.currentWritingStream, -1)
+		atomic.StoreInt32(&c.lastWritingStream, int32(streamID))
+		c.notifyNextStreamWrite(streamID)
+	}(streamID)
 
 	// interlock with Close below
 	for {
@@ -278,9 +280,6 @@ func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n i
 	if n, err = c.conn.Write(b); err != nil {
 		return n, err
 	}
-	// TODO signal next stream
-	atomic.StoreInt32(&c.lastWritingStream, int32(streamID))
-	c.notifyNextStreamWrite(streamID)
 	return
 }
 
@@ -426,7 +425,6 @@ func (c *Conn) readInternal() error {
 	if c.in.cs == nil {
 		panic("Trying to read encrypted frame, but incoming cipherstate is uninitialized")
 	}
-
 	if c.rawInput == nil {
 		c.rawInput = c.in.newBlock()
 	}
@@ -481,6 +479,9 @@ func (c *Conn) readInternal() error {
 		}
 		stream.pushData(b)
 		stream.notifyReadReady()
+		if stream.id != streamID {
+			panic("Stream.id and streamID are not equal")
+		}
 	case frameCmdSYN:
 		s := c.newStream(streamID)
 		c.availableStreams.Push(s)
@@ -876,8 +877,7 @@ func (c *Conn) newStream(streamID uint8) *Stream {
 	s := c.streams[streamID]
 	if s == nil {
 		s = &Stream{
-			readMtx:  &sync.Mutex{},
-			inputMtx: &sync.Mutex{},
+			readMtx: &sync.Mutex{},
 			//writeMtx: &sync.Mutex{},
 			id:   streamID,
 			conn: c,

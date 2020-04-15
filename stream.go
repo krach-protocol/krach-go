@@ -16,8 +16,8 @@ const (
 )
 
 type Stream struct {
-	readMtx  *sync.Mutex
-	inputMtx *sync.Mutex
+	sync.Mutex
+	readMtx *sync.Mutex
 	//writeMtx *sync.Mutex
 	id    uint8
 	conn  *Conn
@@ -61,35 +61,43 @@ func (s *Stream) signalWrite() {
 }
 
 func (s *Stream) Read(b []byte) (n int, err error) {
-	// FIXME currently b needs to be at least Frame length
-	s.inputMtx.Lock()
-	if s.input != nil && len(s.input.data) > 0 {
+	s.Lock()
+	// Copy available data out of current buffer and return if data was available
+	if s.input != nil && len(s.input.data)-s.input.off > 0 {
 		n = copy(b, s.input.data[s.input.off:])
 		s.input.off = s.input.off + n
-		s.inputMtx.Unlock()
-		return n, nil
+		if s.input.off == len(s.input.data) {
+			s.conn.in.freeBlock(s.input)
+			s.input = nil
+		}
+
+		s.Unlock()
+		return
 	}
-	s.inputMtx.Unlock()
+	s.Unlock()
+	// Spin here to trigger reads on the underlying connection and wait until a read
+	// has resulted in data being read into this streams buffer
 	for !atomic.CompareAndSwapUint32(&s.readState, streamReadReady, 0) {
 		if err = s.conn.readInternal(); err != nil {
 			return
 		}
 	}
-	// TODO check if we need to lock s.input so we can modify it in readInternal
-	s.inputMtx.Lock()
+	// If we are here, data has become available
+	s.Lock()
 	n = copy(b, s.input.data[s.input.off:])
 	s.input.off = s.input.off + n
 	if s.input.off == len(s.input.data) {
+		// If we have read until the end of the buffer, free it.
 		s.conn.in.freeBlock(s.input)
 		s.input = nil
 	}
-	s.inputMtx.Unlock()
+	s.Unlock()
 	return
 }
 
 func (s *Stream) pushData(b *buffer) {
-	s.inputMtx.Lock()
-	defer s.inputMtx.Unlock()
+	s.Lock()
+	defer s.Unlock()
 
 	if s.input == nil {
 		s.input = b
@@ -133,19 +141,18 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 
 	s.signalNeedsWrite()
 	for len(data) > 0 {
-		m := len(data)
-
-		maxPayloadSize := s.conn.maxPayloadSizeForFrame()
-		if m > int(maxPayloadSize) {
-			m = int(maxPayloadSize)
-		}
-
 		// Try to acquire our write lock and wait for us to be able to write
 		for !s.pleaseWrite() {
 			// Wait until underlying conn is ready
 		}
 		// Clear write read bit, we are now writing
 		atomic.StoreUint32(&s.state, s.state^streamWriteReady)
+
+		m := len(data)
+		maxPayloadSize := s.conn.maxPayloadSizeForFrame()
+		if m > int(maxPayloadSize) {
+			m = int(maxPayloadSize)
+		}
 
 		n1, err := s.conn.writeInternal(s.id, frameCmdPSH, data[:m])
 		if err != nil {
