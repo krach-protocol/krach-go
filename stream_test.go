@@ -80,6 +80,7 @@ func TestStreamsBasic(t *testing.T) {
 			recvBuf := make([]byte, len(msg))
 			s, err := serverConn.ListenStream()
 			require.NoError(t, err, "Failed to listen for stream %d", streamID)
+			require.Equal(t, s.id, streamID)
 
 			fmt.Printf("Waiting for read in stream %d\n", s.id)
 			n, err := io.ReadFull(s, recvBuf)
@@ -94,6 +95,7 @@ func TestStreamsBasic(t *testing.T) {
 			fmt.Printf("Starting client go routine for stream %d\n", streamID)
 			s, err := clientConn.OpenStream(streamID)
 			require.NoError(t, err, "Failed to open stream %s", streamID)
+			require.Equal(t, s.id, streamID)
 			fmt.Printf("Blocking write in stream %d\n", s.id)
 			n, err := s.Write(msg)
 			fmt.Printf("Successfully written data in stream %d\n", s.id)

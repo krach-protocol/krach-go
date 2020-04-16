@@ -423,16 +423,14 @@ func (c *Conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *Conn) readInternal(readingStreamID uint8) error {
-	// Not sure if this mutex is really necessary
-	//c.streamReadMtx.Lock()
-	//defer c.streamReadMtx.Unlock()
 
 	// Let's keep the streams spinning on that, so streams are not blocked after receiving data
 	if !atomic.CompareAndSwapInt32(&c.activeReadCall, -1, int32(readingStreamID)) {
 		return nil
 	}
 	defer atomic.StoreInt32(&c.activeReadCall, -1)
-
+	c.in.Lock()
+	defer c.in.Unlock()
 	if c.in.cs == nil {
 		panic("Trying to read encrypted frame, but incoming cipherstate is uninitialized")
 	}
@@ -937,8 +935,8 @@ func (c *Conn) ListenStream() (s *Stream, err error) {
 		}
 	}
 	s = c.availableStreams.Pop().(*Stream)
-	atomic.AddInt32(&c.streamsAvailable, -1)
 	err = s.sendSYNACK()
+	atomic.AddInt32(&c.streamsAvailable, -1)
 	// TODO check if we need to do something special in this case
 	return s, err
 }
