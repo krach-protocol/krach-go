@@ -67,8 +67,8 @@ func TestStreamsBasic(t *testing.T) {
 
 	for sID := baseStreamID; sID < baseStreamID+uint8(parallelStreams); sID++ {
 		wg.Add(2)
-		randData := make([]byte, 2000, 2000)
-		for i := 0; i < 2000; i++ {
+		randData := make([]byte, 20, 20)
+		for i := 0; i < 20; i++ {
 			randData[i] = sID
 		}
 		//rand.Read(randData)
@@ -94,7 +94,6 @@ func TestStreamsBasic(t *testing.T) {
 			fmt.Printf("Starting client go routine for stream %d\n", streamID)
 			s, err := clientConn.OpenStream(streamID)
 			require.NoError(t, err, "Failed to open stream %s", streamID)
-			require.EqualValues(t, streamID, msg[1000])
 			fmt.Printf("Blocking write in stream %d\n", s.id)
 			n, err := s.Write(msg)
 			fmt.Printf("Successfully written data in stream %d\n", s.id)

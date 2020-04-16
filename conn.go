@@ -100,7 +100,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		config:   conf,
 		certPool: certPool,
 
-		streams:              make([]*Stream, math.MaxUint8, math.MaxUint8),
+		streams:              make([]*Stream, math.MaxUint8+1, math.MaxUint8+1),
 		streamWriteMtx:       &sync.Mutex{},
 		streamReadMtx:        &sync.Mutex{},
 		currentWritingStream: -1,
@@ -203,9 +203,25 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 func (c *Conn) pleaseWrite() {
-	// Return true if no one else is currently writing
 	if s := atomic.LoadInt32(&c.currentWritingStream); s == -1 {
-		c.notifyNextStreamWrite(uint8(s))
+		streamID := atomic.LoadInt32(&c.lastWritingStream)
+		c.notifyNextStreamWrite(uint8(streamID))
+	}
+}
+
+func (c *Conn) notifyNextStreamWrite(streamID uint8) {
+	for i := streamID; i <= math.MaxUint8; i++ {
+		if s := c.streams[i]; s != nil && s.hasData() {
+			s.signalWrite()
+			return
+		}
+	}
+	// Wrap around
+	for i := 0; i < int(streamID); i++ {
+		if s := c.streams[i]; s != nil && s.hasData() {
+			s.signalWrite()
+			return
+		}
 	}
 }
 
@@ -217,9 +233,9 @@ func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n i
 
 	// Signal that no stream is writing to this connection currently
 	defer func(streamID uint8) {
-		atomic.StoreInt32(&c.currentWritingStream, -1)
 		atomic.StoreInt32(&c.lastWritingStream, int32(streamID))
-		c.notifyNextStreamWrite(streamID)
+		atomic.StoreInt32(&c.currentWritingStream, -1)
+		//c.notifyNextStreamWrite(streamID)
 	}(streamID)
 
 	// interlock with Close below
@@ -343,22 +359,6 @@ func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 	}
 
 	return n, nil
-}
-
-func (c *Conn) notifyNextStreamWrite(streamID uint8) {
-	for i := streamID; i < math.MaxUint8; i++ {
-		if s := c.streams[i]; s != nil && s.hasData() {
-			s.signalWrite()
-			return
-		}
-	}
-	// Wrap around
-	for i := 0; i < int(streamID); i++ {
-		if s := c.streams[i]; s != nil && s.hasData() {
-			s.signalWrite()
-			return
-		}
-	}
 }
 
 func (c *Conn) maxPayloadSizeForWrite(block *buffer) uint16 {

@@ -18,10 +18,9 @@ const (
 type Stream struct {
 	sync.Mutex
 	readMtx *sync.Mutex
-	//writeMtx *sync.Mutex
-	id    uint8
-	conn  *Conn
-	input *buffer
+	id      uint8
+	conn    *Conn
+	input   *buffer
 
 	state          uint32
 	readState      uint32
@@ -38,26 +37,6 @@ func (s *Stream) handshakeFinished() bool {
 
 func (s *Stream) setHandshakeFinished() {
 	atomic.StoreUint32(&s.handshakeState, streamHandshakeFinished)
-}
-
-func (s *Stream) hasData() bool {
-	x := atomic.LoadUint32(&s.state)
-	return x&streamHasData == streamHasData
-}
-
-func (s *Stream) signalNeedsWrite() {
-	x := atomic.LoadUint32(&s.state)
-	atomic.StoreUint32(&s.state, x|streamHasData)
-}
-
-func (s *Stream) clearNeedsWrite() {
-	x := atomic.LoadUint32(&s.state)
-	atomic.StoreUint32(&s.state, x^streamHasData)
-}
-
-func (s *Stream) signalWrite() {
-	x := atomic.LoadUint32(&s.state)
-	atomic.StoreUint32(&s.state, x|streamWriteReady)
 }
 
 func (s *Stream) Read(b []byte) (n int, err error) {
@@ -96,6 +75,7 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	return
 }
 
+// pushData pushes data into the stream to be read by the client
 func (s *Stream) pushData(b *buffer) {
 	s.Lock()
 	defer s.Unlock()
@@ -114,40 +94,46 @@ func (s *Stream) notifyReadReady() {
 }
 
 func (s *Stream) pleaseWrite() bool {
-	s.conn.pleaseWrite()
-	return atomic.LoadUint32(&s.state)&streamWriteReady == streamWriteReady
+	for !atomic.CompareAndSwapUint32(&s.state, streamWriteReady, 0) {
+		s.conn.pleaseWrite()
+	}
+	return true
 }
 
 func (s *Stream) sendSYN() (err error) {
 	s.signalNeedsWrite()
-	defer s.clearNeedsWrite()
-	for !s.pleaseWrite() {
-
-	}
+	s.pleaseWrite()
 	_, err = s.conn.writeInternal(s.id, frameCmdSYN, nil)
 	return
 }
 
 func (s *Stream) sendSYNACK() (err error) {
 	s.signalNeedsWrite()
-	defer s.clearNeedsWrite()
-	for !s.pleaseWrite() {
-
-	}
+	s.pleaseWrite()
 	_, err = s.conn.writeInternal(s.id, frameCmdSYNACK, nil)
 	return
 }
 
+func (s *Stream) hasData() bool {
+	x := atomic.LoadUint32(&s.state)
+	return x&streamHasData == streamHasData
+}
+
+func (s *Stream) signalNeedsWrite() {
+	atomic.StoreUint32(&s.state, streamHasData)
+}
+
+func (s *Stream) signalWrite() {
+	atomic.StoreUint32(&s.state, streamWriteReady)
+	//atomic.CompareAndSwapUint32(&s.state, streamHasData, 0|streamHasData|streamWriteReady)
+}
+
 func (s *Stream) Write(data []byte) (n int, err error) {
 
-	s.signalNeedsWrite()
 	for len(data) > 0 {
+		s.signalNeedsWrite()
 		// Try to acquire our write lock and wait for us to be able to write
-		for !s.pleaseWrite() {
-			// Wait until underlying conn is ready
-		}
-		// Clear write read bit, we are now writing
-		atomic.StoreUint32(&s.state, s.state^streamWriteReady)
+		s.pleaseWrite()
 
 		m := len(data)
 		maxPayloadSize := s.conn.maxPayloadSizeForFrame()
@@ -162,6 +148,6 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 		n += m
 		data = data[m:]
 	}
-	s.clearNeedsWrite()
+	//s.clearNeedsWrite()
 	return n, nil
 }
