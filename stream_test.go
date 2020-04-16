@@ -80,14 +80,15 @@ func TestStreamsBasic(t *testing.T) {
 			recvBuf := make([]byte, len(msg))
 			s, err := serverConn.ListenStream()
 			require.NoError(t, err, "Failed to listen for stream %d", streamID)
-			require.Equal(t, s.id, streamID)
 
 			fmt.Printf("Waiting for read in stream %d\n", s.id)
 			n, err := io.ReadFull(s, recvBuf)
 			fmt.Printf("Successfully read data in stream %d\n", s.id)
 			require.NoError(t, err, "Failed to read message on stream %d", streamID)
 			assert.EqualValues(t, len(msg), n, "Read not enough bytes on stream %d", streamID)
-			assert.EqualValues(t, msg, recvBuf[:n], "Read unexpected data on stream %x", streamID)
+			// We can't know which stream was actually accepted here, so we need to validate that the correct
+			// message was received on a random stream.
+			assert.Equal(t, s.id, recvBuf[len(recvBuf)-1])
 		}(sID, streamMsg)
 
 		go func(streamID uint8, msg []byte) {
