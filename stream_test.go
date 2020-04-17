@@ -63,7 +63,7 @@ func TestStreamsBasic(t *testing.T) {
 
 	wg := &sync.WaitGroup{}
 
-	parallelStreams := 2
+	parallelStreams := 20
 
 	for sID := baseStreamID; sID < baseStreamID+uint8(parallelStreams); sID++ {
 		wg.Add(2)

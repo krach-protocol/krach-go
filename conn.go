@@ -928,6 +928,7 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 }
 
 func (c *Conn) ListenStream() (s *Stream, err error) {
+	// TODO maybe we need to synchronize this block with a mutex, to avoid popping nil streams
 	for atomic.LoadInt32(&c.streamsAvailable) <= 0 {
 		// Special stream id for internal purposes
 		if err = c.readInternal(0); err != nil {
