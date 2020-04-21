@@ -44,7 +44,7 @@ with a few minor modifications. The main modification here is that the static pu
 by a [smolcert](https://github.com/smolcert). This is made possible by converting the ed25519 public signing key
 to a curve25519 key used during the elliptic curve diffie hellman operation. The security of this has been discussed
 on the [modern crypto mailinglist](https://moderncrypto.org/mail-archive/curves/2014/000293.html) and afaik has been
-deemed secure enough for use case. Libsodium also 
+deemed secure enough for this use case. Libsodium also 
 [supports](https://libsodium.gitbook.io/doc/advanced/ed25519-curve25519) this operation.
 Doing this enables us to verify identities of each peer during handshake because each peer proves through
 the elliptic curve diffie hellman operation that it is in possession of the private key belonging to to the
