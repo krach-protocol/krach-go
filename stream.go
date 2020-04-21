@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	streamHasData uint32 = 1 << iota
+	streamClosed uint32 = 1 << iota
+	streamHasData
 	streamWriteReady
 	streamReadReady
 )
