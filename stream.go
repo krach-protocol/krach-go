@@ -1,6 +1,7 @@
 package krach
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 )
@@ -16,6 +17,10 @@ const (
 	streamHandshakeFinished uint32 = 1 << iota
 )
 
+var (
+	ErrorStreamClosed = errors.New("stream closed")
+)
+
 type Stream struct {
 	sync.Mutex
 	readMtx *sync.Mutex
@@ -26,6 +31,8 @@ type Stream struct {
 	state          uint32
 	readState      uint32
 	handshakeState uint32
+
+	activeCall int32
 }
 
 func (s *Stream) ID() uint8 {
@@ -55,6 +62,12 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 		return
 	}
 	s.Unlock()
+
+	// Check if the stream is closed, might need to return a different error to be compatible
+	// with io.ReadAll etc.
+	if x := atomic.LoadInt32(&s.activeCall); x&1 != 0 {
+		return 0, ErrorStreamClosed
+	}
 	// Spin here to trigger reads on the underlying connection and wait until a read
 	// has resulted in data being read into this streams buffer
 	for !atomic.CompareAndSwapUint32(&s.readState, streamReadReady, 0) {
@@ -130,6 +143,17 @@ func (s *Stream) signalWrite() {
 }
 
 func (s *Stream) Write(data []byte) (n int, err error) {
+	// interlock with close of stream, hoping that we don't introduce additional blocking
+	for {
+		x := atomic.LoadInt32(&s.activeCall)
+		if x&1 != 0 {
+			return 0, ErrorStreamClosed
+		}
+		if atomic.CompareAndSwapInt32(&s.activeCall, x, x+2) {
+			defer atomic.AddInt32(&s.activeCall, -2)
+			break
+		}
+	}
 
 	for len(data) > 0 {
 		s.signalNeedsWrite()
@@ -151,4 +175,42 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 	}
 	//s.clearNeedsWrite()
 	return n, nil
+}
+
+func (s *Stream) closeInternal() error {
+	var x int32
+	for {
+		x = atomic.LoadInt32(&s.activeCall)
+		if x&1 != 0 {
+			return ErrorStreamClosed
+		}
+		if atomic.CompareAndSwapInt32(&s.activeCall, x, x|1) {
+			break
+		}
+	}
+	// Wait for active write calls to end
+	for {
+		x = atomic.LoadInt32(&s.activeCall)
+		if x < 1 {
+			break
+		}
+	}
+	return nil
+}
+
+func (s *Stream) Close() error {
+	// Sending the FIN command. This does not mean that data won't be read from the connection
+	// or existing write operations won't complete. But this implementation is currently easier
+	// than having special handling of fin commands
+	s.signalNeedsWrite()
+	s.pleaseWrite()
+	_, err := s.conn.writeInternal(s.id, frameCmdFIN, nil)
+	if err != nil {
+		return err
+	}
+	//Wait for active calls to finish and mark this stream as closed
+
+	err = s.closeInternal()
+	s.conn.removeStream(s)
+	return err
 }

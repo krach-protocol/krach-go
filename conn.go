@@ -503,7 +503,10 @@ func (c *Conn) readInternal(readingStreamID uint8) error {
 		}
 		stream.setHandshakeFinished()
 	case frameCmdFIN:
-		// TODO close a stream
+		stream := c.streams[streamID]
+		stream.closeInternal()
+		c.removeStream(stream)
+
 		panic("Not implemented yet")
 	default:
 		panic("Received invalid frame command")
@@ -940,6 +943,11 @@ func (c *Conn) ListenStream() (s *Stream, err error) {
 	atomic.AddInt32(&c.streamsAvailable, -1)
 	// TODO check if we need to do something special in this case
 	return s, err
+}
+
+func (c *Conn) removeStream(stream *Stream) {
+	c.streams[stream.id] = nil
+	// TODO check if we need to free/deallocate anything
 }
 
 func pad(payload []byte) []byte {
