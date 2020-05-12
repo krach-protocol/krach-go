@@ -2,8 +2,10 @@ package krach
 
 import (
 	"errors"
+	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -213,4 +215,24 @@ func (s *Stream) Close() error {
 	err = s.closeInternal()
 	s.conn.removeStream(s)
 	return err
+}
+
+func (s *Stream) LocalAddr() net.Addr {
+	return s.conn.LocalAddr()
+}
+
+func (s *Stream) RemoteAddr() net.Addr {
+	return s.conn.RemoteAddr()
+}
+
+func (s *Stream) SetDeadline(t time.Time) error {
+	return errors.New("Not implemented")
+}
+
+func (s *Stream) SetReadDeadline(t time.Time) error {
+	return errors.New("Not implemented")
+}
+
+func (s *Stream) SetWriteDeadline(t time.Time) error {
+	return errors.New("Not implemented")
 }
