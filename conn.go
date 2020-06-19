@@ -82,9 +82,10 @@ type Conn struct {
 	maxFrameSize uint16
 
 	// TODO replace with more efficient linked list
-	streams        []*Stream
-	streamWriteMtx *sync.Mutex
-	streamReadMtx  *sync.Mutex
+	streams         []*Stream
+	streamWriteMtx  *sync.Mutex
+	streamReadMtx   *sync.Mutex
+	listenStreamMtx *sync.Mutex
 
 	currentWritingStream int32
 	lastWritingStream    int32
@@ -103,6 +104,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		streams:              make([]*Stream, math.MaxUint8+1, math.MaxUint8+1),
 		streamWriteMtx:       &sync.Mutex{},
 		streamReadMtx:        &sync.Mutex{},
+		listenStreamMtx:      &sync.Mutex{},
 		currentWritingStream: -1,
 		availableStreams:     newLst(),
 		activeReadCall:       -1,
@@ -931,6 +933,8 @@ func (c *Conn) OpenStream(streamID uint8) (s *Stream, err error) {
 }
 
 func (c *Conn) ListenStream() (s *Stream, err error) {
+	c.listenStreamMtx.Lock()
+	defer c.listenStreamMtx.Unlock()
 	// TODO maybe we need to synchronize this block with a mutex, to avoid popping nil streams
 	for atomic.LoadInt32(&c.streamsAvailable) <= 0 {
 		// Special stream id for internal purposes
