@@ -17,6 +17,10 @@ import (
 	"github.com/smolcert/smolcert"
 )
 
+var (
+	errGoAway = errors.New("Go away, someone else is writing")
+)
+
 // MaxPayloadSize is the maximal size for the payload of transport packets
 const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
 
@@ -230,7 +234,7 @@ func (c *Conn) notifyNextStreamWrite(streamID uint8) {
 func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n int, err error) {
 	// The data is expected to be split into appropriate frame payload sizes
 	if !atomic.CompareAndSwapInt32(&c.currentWritingStream, -1, int32(streamID)) {
-		return 0, errors.New("Go away, someone else is writing")
+		return 0, errGoAway
 	}
 
 	// Signal that no stream is writing to this connection currently

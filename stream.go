@@ -140,10 +140,21 @@ func (s *Stream) signalWrite() {
 	//atomic.CompareAndSwapUint32(&s.state, streamHasData, 0|streamHasData|streamWriteReady)
 }
 
-func (s *Stream) writeSynced(cmd frameCommand, payload []byte) (int, error) {
-	s.signalNeedsWrite()
-	s.pleaseWrite()
-	return s.conn.writeInternal(s.id, cmd, payload)
+func (s *Stream) writeSynced(cmd frameCommand, payload []byte) (n int, err error) {
+	for {
+		s.signalNeedsWrite()
+		s.pleaseWrite()
+		n, err = s.conn.writeInternal(s.id, cmd, payload)
+		if err == nil {
+			break
+		} else if err != nil && err == errGoAway {
+			continue
+		} else {
+			break
+		}
+	}
+
+	return n, err
 }
 
 func (s *Stream) Write(data []byte) (n int, err error) {
