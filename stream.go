@@ -117,16 +117,12 @@ func (s *Stream) pleaseWrite() bool {
 }
 
 func (s *Stream) sendSYN() (err error) {
-	s.signalNeedsWrite()
-	s.pleaseWrite()
-	_, err = s.conn.writeInternal(s.id, frameCmdSYN, nil)
+	_, err = s.writeSynced(frameCmdSYN, nil)
 	return
 }
 
 func (s *Stream) sendSYNACK() (err error) {
-	s.signalNeedsWrite()
-	s.pleaseWrite()
-	_, err = s.conn.writeInternal(s.id, frameCmdSYNACK, nil)
+	_, err = s.writeSynced(frameCmdSYNACK, nil)
 	return
 }
 
@@ -144,6 +140,12 @@ func (s *Stream) signalWrite() {
 	//atomic.CompareAndSwapUint32(&s.state, streamHasData, 0|streamHasData|streamWriteReady)
 }
 
+func (s *Stream) writeSynced(cmd frameCommand, payload []byte) (int, error) {
+	s.signalNeedsWrite()
+	s.pleaseWrite()
+	return s.conn.writeInternal(s.id, cmd, payload)
+}
+
 func (s *Stream) Write(data []byte) (n int, err error) {
 	// interlock with close of stream, hoping that we don't introduce additional blocking
 	for {
@@ -158,17 +160,13 @@ func (s *Stream) Write(data []byte) (n int, err error) {
 	}
 
 	for len(data) > 0 {
-		s.signalNeedsWrite()
-		// Try to acquire our write lock and wait for us to be able to write
-		s.pleaseWrite()
-
 		m := len(data)
 		maxPayloadSize := s.conn.maxPayloadSizeForFrame()
 		if m > int(maxPayloadSize) {
 			m = int(maxPayloadSize)
 		}
 
-		n1, err := s.conn.writeInternal(s.id, frameCmdPSH, data[:m])
+		n1, err := s.writeSynced(frameCmdPSH, data[:m])
 		if err != nil {
 			return n1, err
 		}
