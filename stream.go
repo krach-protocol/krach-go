@@ -72,6 +72,7 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	}
 	// Spin here to trigger reads on the underlying connection and wait until a read
 	// has resulted in data being read into this streams buffer
+	// TODO have some kind of timeout here
 	for !atomic.CompareAndSwapUint32(&s.readState, streamReadReady, 0) {
 		if err = s.conn.readInternal(s.id); err != nil {
 			return
