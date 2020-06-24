@@ -80,12 +80,14 @@ func (s *Stream) Read(b []byte) (n int, err error) {
 	// If we are here, data has become available. Locking only to ensure that we are
 	// not racing on the buffer here
 	s.Lock()
-	n = copy(b, s.input.data[s.input.off:])
-	s.input.off = s.input.off + n
-	if s.input.off == len(s.input.data) {
-		// If we have read until the end of the buffer, free it.
+	if len(s.input.data) > s.input.off {
+		n = copy(b, s.input.data[s.input.off:])
+		s.input.off = s.input.off + n
+	} else {
+		// Nothing to read any more, we have reached the end of received data
 		s.conn.in.freeBlock(s.input)
 		s.input = nil
+		n = 0
 	}
 	s.Unlock()
 	return
