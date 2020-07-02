@@ -90,6 +90,7 @@ type Conn struct {
 	streamWriteMtx  *sync.Mutex
 	streamReadMtx   *sync.Mutex
 	listenStreamMtx *sync.Mutex
+	pleaseWriteMtx  *sync.Mutex
 
 	currentWritingStream int32
 	lastWritingStream    int32
@@ -109,6 +110,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		streamWriteMtx:       &sync.Mutex{},
 		streamReadMtx:        &sync.Mutex{},
 		listenStreamMtx:      &sync.Mutex{},
+		pleaseWriteMtx:       &sync.Mutex{},
 		currentWritingStream: -1,
 		availableStreams:     newLst(),
 		activeReadCall:       -1,
@@ -209,6 +211,8 @@ func (c *Conn) Write(b []byte) (int, error) {
 }
 
 func (c *Conn) pleaseWrite() {
+	c.pleaseWriteMtx.Lock()
+	defer c.pleaseWriteMtx.Unlock()
 	if s := atomic.LoadInt32(&c.currentWritingStream); s == -1 {
 		streamID := atomic.LoadInt32(&c.lastWritingStream)
 		c.notifyNextStreamWrite(uint8(streamID))
@@ -241,7 +245,6 @@ func (c *Conn) writeInternal(streamID uint8, cmd frameCommand, data []byte) (n i
 	defer func(streamID uint8) {
 		atomic.StoreInt32(&c.lastWritingStream, int32(streamID))
 		atomic.StoreInt32(&c.currentWritingStream, -1)
-		//c.notifyNextStreamWrite(streamID)
 	}(streamID)
 
 	// interlock with Close below
