@@ -16,7 +16,7 @@ packet. The rest of the packet contains a Ed25519 ephemeral (before connection s
 generated) public key which is always 32 bytes in length. Since the length of this packet type is
 static and well known there are no length fields.
 
-TODO: Think about SNI-like mechanism, which should also include something like a "Realm" for easier multi tennancy 
+TODO: Think about SNI-like mechanism, which should also include something like a "Realm" for easier multi tenancy 
 on single hosts.
 
  0                   1                   2                   3
@@ -52,6 +52,8 @@ from the server for the client to validate. Additionally (depending on the trans
 the server can send additional payloads which may be relevant for the connection setup. Both, the Smolcert
 and the payload, are encrypted via an AEAD (ChaCha2020-Poly1305), so the encrypted payload contains
 128 bytes authentication tag at the end.
+
+The `Handshake Type` field must be set to `0x02`, as well as field `Stream ID` must be `0x00`.
 
 FIXME: We should pad the encrypted payload and store the padded length at the beginning.
 
@@ -98,7 +100,11 @@ both length prefixed.
 +                       Payload (n-bytes)                       +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
 ## HandshakeFin
+
+The Initiator sends the Handshake Fin packet after receiving the Handshake response
+and constructing his view of the cipher state
 
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -134,7 +140,6 @@ The field `Steam ID` here must not be `0x00` as this Stream ID is reserved
 for management packets. As always the encrypted payload contains a 128 bytes
 long authentication tag.
 
-FIXME: We need to handle padding here as well.
 
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
@@ -145,3 +150,30 @@ FIXME: We need to handle padding here as well.
 +                  Encrypted Payload (n-bytes)                  +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+## Encrypted payloads
+
+Everytime we have an encrypted payload in a packet the payload is padded until the payload length
+is divisible by 16. This means that a payload may be padded with up to 15 bytes.
+Padding is always added at the end of the unencrypted payload. The amount of padding bytes
+is indicated in the lower nibble of the first byte of the unecrypted payload
+
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|P|                                                             |
++-+                                                             +
+|                       Payload (n-bytes)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Where "P" is a byte where the lower nibble indicates the amount of padding bytes added to the end
+of the payload (between 0 and 15) and the upper nibble is reserved and must be 0x0.
+
+This means that every time a payload is encrypted it is padded with up to 15 bytes until the payload
+length is evenly divisible by 16 and the amount of padded bytes is then written as unsigned integer
+to the lower nibble of a (new) first byte.
+
+Equally after decryption of a payload the amount of padded bytes must be read from the lower nibble of 
+the first byte. This amount of bytes must be truncated from the end of the payload as must be the first
+byte to get the original unencrypted payload.
+
