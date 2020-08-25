@@ -81,6 +81,7 @@ type Conn struct {
 	handshakeCond  *sync.Cond
 	channelBinding []byte
 	config         ConnectionConfig
+	maxPayloadSize uint16
 
 	certPool     CertPool
 	maxFrameSize uint16
@@ -114,6 +115,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		currentWritingStream: -1,
 		availableStreams:     newLst(),
 		activeReadCall:       -1,
+		maxPayloadSize:       conf.MaxFrameLength - 3 /*Header bytes*/ - 16, /*HMAC*/
 	}
 }
 
@@ -373,7 +375,7 @@ func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 func (c *Conn) maxPayloadSizeForWrite(block *buffer) uint16 {
 
 	//return MaxPayloadSize //TODO
-	return c.config.MaxFrameLength
+	return c.maxPayloadSize
 }
 
 func (c *Conn) maxPayloadSizeForFrame() uint16 {

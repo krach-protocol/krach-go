@@ -293,3 +293,18 @@ func (h *handshakeFinPacket) WriteEncryptedIdentity(s []byte) {
 	binary.LittleEndian.PutUint16(h.Buf[2:], uint16(idLen))
 	copy(h.Buf[4:], s)
 }
+
+func padPayload(buf []byte) ([]byte, int) {
+	origDataLen := len(buf)
+	bytesToPad := 16 - (origDataLen % 16) /*always pad to 16 bytes as recommended by the specification of ChaCha2020 */
+	if bytesToPad == 16 {
+		// We don't need padding if the payload is already divisible by 16
+		bytesToPad = 0
+	}
+	if origDataLen+bytesToPad > cap(buf) {
+		newBuf := make([]byte, origDataLen+bytesToPad)
+		copy(newBuf, buf)
+		buf = newBuf
+	}
+	return buf[:origDataLen+bytesToPad], bytesToPad
+}
