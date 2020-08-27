@@ -102,6 +102,11 @@ type Conn struct {
 }
 
 func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
+	maxPayloadSize := conf.MaxFrameLength - 3 /*Header bytes*/ - 16 /*HMAC*/
+	if rest := maxPayloadSize % 16; rest != 0 {
+		// Ensure that we nexer exceed MaxFrameLength, but have something divisible by 16
+		maxPayloadSize = maxPayloadSize - rest
+	}
 	return &Conn{
 		conn:     netConn,
 		config:   conf,
@@ -115,7 +120,7 @@ func newConn(conf ConnectionConfig, netConn net.Conn, certPool CertPool) *Conn {
 		currentWritingStream: -1,
 		availableStreams:     newLst(),
 		activeReadCall:       -1,
-		maxPayloadSize:       conf.MaxFrameLength - 3 /*Header bytes*/ - 16, /*HMAC*/
+		maxPayloadSize:       maxPayloadSize,
 	}
 }
 
@@ -330,49 +335,46 @@ func (c *Conn) InitializePacket() *buffer {
 
 func (c *Conn) writePacketLocked(data []byte, streamID uint8) (int, error) {
 
-	var n int
+	var paddedBytes uint8
 
-	for len(data) > 0 {
+	data, paddedBytes = padPayload(data)
+	m := len(data)
+	n := m
 
-		m := len(data)
+	packet := c.InitializePacket()
 
-		packet := c.InitializePacket()
+	maxPayloadSize := c.maxPayloadSizeForWrite()
+	if m > int(maxPayloadSize) {
+		return 0, fmt.Errorf("Payload length %d exceeds max payload size %d", m, c.maxPayloadSizeForWrite())
+	}
+	if c.out.cs != nil {
+		packet.reserve(paddingSize + streamIDSize + m + macSize)
+		packet.resize(paddingSize + uint16Size + streamIDSize + m)
+		binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize+paddingSize)
+		// Add paddingLength and streamID to to be encrypted data.
+		packet.data[2] = paddedBytes
+		packet.data[3] = streamID
+		copy(packet.data[uint16Size+streamIDSize:], data[:m])
+	} else {
+		packet.resize(len(packet.data) + len(data))
+		copy(packet.data[uint16Size:len(packet.data)], data[:m])
+		binary.BigEndian.PutUint16(packet.data, uint16(len(data)))
+	}
 
-		maxPayloadSize := c.maxPayloadSizeForWrite(packet)
-		if m > int(maxPayloadSize) {
-			m = int(maxPayloadSize)
-		}
-		if c.out.cs != nil {
-			packet.reserve(uint16Size + streamIDSize + m + macSize)
-			packet.resize(uint16Size + streamIDSize + m)
-			binary.BigEndian.PutUint16(packet.data, uint16(m)+macSize+streamIDSize)
-			// Add streamID to to be encrypted data.
-			packet.data[2] = streamID
-			copy(packet.data[uint16Size+streamIDSize:], data[:m])
-		} else {
-			packet.resize(len(packet.data) + len(data))
-			copy(packet.data[uint16Size:len(packet.data)], data[:m])
-			binary.BigEndian.PutUint16(packet.data, uint16(len(data)))
-		}
+	b := c.out.encryptIfNeeded(packet)
+	c.out.freeBlock(packet)
 
-		b := c.out.encryptIfNeeded(packet)
-		c.out.freeBlock(packet)
-
-		if c.config.WriteTimeout.Nanoseconds() > 0 {
-			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
-		}
-		if _, err := c.conn.Write(b); err != nil {
-			return n, err
-		}
-
-		n += m
-		data = data[m:]
+	if c.config.WriteTimeout.Nanoseconds() > 0 {
+		c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+	}
+	if _, err := c.conn.Write(b); err != nil {
+		return n, err
 	}
 
 	return n, nil
 }
 
-func (c *Conn) maxPayloadSizeForWrite(block *buffer) uint16 {
+func (c *Conn) maxPayloadSizeForWrite() uint16 {
 
 	//return MaxPayloadSize //TODO
 	return c.maxPayloadSize
@@ -486,8 +488,8 @@ func (c *Conn) readInternal(readingStreamID uint8) error {
 
 	b.off = off
 	// If we have an encrypted frame, it is prefixed by a streamID
-	streamID := b.data[2]
-	frameCmd := b.data[3]
+	streamID := b.data[3]
+	frameCmd := b.data[4]
 
 	switch frameCommand(frameCmd) {
 	case frameCmdPSH:

@@ -21,8 +21,9 @@ type halfConn struct {
 }
 
 const (
-	uint16Size = 2  // uint16 takes 2 bytes
-	macSize    = 16 // Poly1305 add 16 byte MACs
+	uint16Size  = 2  // uint16 takes 2 bytes
+	macSize     = 16 // Poly1305 add 16 byte MACs
+	paddingSize = 1
 )
 
 func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
@@ -69,19 +70,22 @@ func (h *halfConn) decryptIfNeeded(b *buffer) (off, length int, err error) {
 		if err != nil {
 			return 0, 0, fmt.Errorf("Failed to decrypt received payload in halfconn: %w", err)
 		}
-		if len(payload) < uint16Size {
+		if len(payload) < 3 {
 			return 0, 0, errors.New("too small packet data")
 		}
 
 		//dataLen := binary.BigEndian.Uint16(payload)
 		//fmt.Println("decrypt len", dataLen)
-		dataLen := len(payload)
+		paddedDataLen := len(payload)
+		paddedLen := int(payload[0])
+		dataLen := paddedDataLen - paddedLen
+		payload = payload[:dataLen]
 
-		if int(packetLen-macSize) != dataLen {
-			return 0, 0, fmt.Errorf("invalid packet data: %d %d", dataLen, len(payload))
+		if int(packetLen-macSize) != paddedDataLen {
+			return 0, 0, fmt.Errorf("invalid packet data: %d %d", paddedDataLen, len(payload))
 		}
-		b.resize(uint16Size + int(dataLen))
-		return uint16Size, int(dataLen), nil
+		b.resize(3 + int(dataLen))
+		return 3, int(dataLen), nil
 	}
 
 	return uint16Size, len(payload), nil

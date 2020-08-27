@@ -294,7 +294,7 @@ func (h *handshakeFinPacket) WriteEncryptedIdentity(s []byte) {
 	copy(h.Buf[4:], s)
 }
 
-func padPayload(buf []byte) ([]byte, int) {
+func padPayload(buf []byte) ([]byte, uint8) {
 	origDataLen := len(buf)
 	bytesToPad := 16 - (origDataLen % 16) /*always pad to 16 bytes as recommended by the specification of ChaCha2020 */
 	if bytesToPad == 16 {
@@ -306,5 +306,5 @@ func padPayload(buf []byte) ([]byte, int) {
 		copy(newBuf, buf)
 		buf = newBuf
 	}
-	return buf[:origDataLen+bytesToPad], bytesToPad
+	return buf[:origDataLen+bytesToPad], uint8(bytesToPad)
 }
