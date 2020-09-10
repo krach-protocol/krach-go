@@ -2,7 +2,6 @@ package krach
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"net"
 	"sync"
@@ -87,7 +86,6 @@ func (c *Conn) acquireConn(streamID uint8) (err error) {
 		}
 		s = c.streams[nextStreamID]
 		if s != nil && s.needsWrite() {
-			fmt.Printf("Stream %d needs write\n", nextStreamID)
 			break
 		}
 		nextStreamID++
@@ -128,7 +126,6 @@ func (s *Stream) Write(buf []byte) (n int, err error) {
 		for !atomic.CompareAndSwapInt32(&s.writeLock, 1, 0) {
 			s.conn.acquireConn(s.id)
 		}
-		fmt.Printf("Stream %d is allowed to write\n", s.id)
 		// Simulate a write to a connection for now with this...
 		s.conn.testBuf = append(s.conn.testBuf, buf...)
 		// TODO write stuff to connection
