@@ -1,7 +1,6 @@
 package krach
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -23,8 +22,7 @@ func (s *Stream) needsWrite() bool {
 func (s *Stream) Write(buf []byte) (n int, err error) {
 	defer func(err error, s *Stream) {
 		if err != nil {
-			var netErr net.Error
-			if errors.As(err, netErr) {
+			if netErr, ok := err.(net.Error); ok {
 				if !netErr.Temporary() {
 					// TODO mark stream and connection as broken
 				}

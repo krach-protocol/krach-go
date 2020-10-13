@@ -49,6 +49,15 @@ type ConnectionConfig struct {
 	VerifyCallback VerifyCallbackFunc
 }
 
+func DefaultConnectionConfig() *ConnectionConfig {
+	return &ConnectionConfig{
+		MaxFrameLength:   1420,
+		ReadTimeout:      time.Second * 10,
+		WriteTimeout:     time.Second * 10,
+		HandshakeTimeout: time.Second * 10,
+	}
+}
+
 type Conn struct {
 	netConn net.Conn
 
@@ -225,10 +234,9 @@ func (c *Conn) validateRemoteID(id *Identity, payload []byte) error {
 
 func (c *Conn) runClientHandshake() error {
 	var (
-		msg         []byte
-		state       *handshakeState
-		err         error
-		csIn, csOut *cipherState
+		msg   []byte
+		state *handshakeState
+		err   error
 	)
 
 	state = newState(&handshakeConfig{
@@ -277,7 +285,7 @@ func (c *Conn) runClientHandshake() error {
 		return err
 	}
 
-	if csOut == nil || csIn == nil {
+	if c.csOut == nil || c.csIn == nil {
 		return errors.New("Failed to create cipher states")
 	}
 

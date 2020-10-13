@@ -2,15 +2,19 @@ package krach
 
 import (
 	"math/rand"
+	"net"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/smolcert/smolcert"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestConcurrentConnAccess(t *testing.T) {
-	conn, err := NewConn(nil)
+	t.Skip("Need to finish handshake first")
+	conn, err := NewConn(DefaultConnectionConfig())
 	require.NoError(t, err)
 
 	conn.testBuf = []byte{}
@@ -37,4 +41,45 @@ func TestConcurrentConnAccess(t *testing.T) {
 	wg.Wait()
 
 	assert.EqualValues(t, streamWriteSize*streamCount, len(conn.testBuf))
+}
+
+func TestHandshake(t *testing.T) {
+	rootCert, rootKey, err := smolcert.SelfSignedCertificate("root", time.Now(), time.Now().Add(time.Minute*5), nil)
+	require.NoError(t, err)
+	clientCert, clientKey, err := smolcert.ClientCertificate("client", 1, time.Now(), time.Now().Add(time.Minute*5), nil, rootKey, rootCert.Subject)
+	require.NoError(t, err)
+	serverCert, serverKey, err := smolcert.ClientCertificate("server", 2, time.Now(), time.Now().Add(time.Minute*5), nil, rootKey, rootCert.Subject)
+	require.NoError(t, err)
+
+	clientNetConn, serverNetConn := net.Pipe()
+	clientConf := DefaultConnectionConfig()
+	clientConf.isClient = true
+	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+
+	serverConf := DefaultConnectionConfig()
+	serverConf.isClient = false
+	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+
+	clientConn, _ := NewConn(clientConf)
+	clientConn.netConn = clientNetConn
+
+	serverConn, _ := NewConn(serverConf)
+	serverConn.netConn = serverNetConn
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		err := clientConn.runClientHandshake()
+		assert.NoError(t, err, "Client handshake failed")
+		wg.Done()
+	}()
+
+	go func() {
+		err := serverConn.runServerHandshake()
+		assert.NoError(t, err, "Server handshake failed")
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
