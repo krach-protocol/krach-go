@@ -2,6 +2,7 @@ package krach
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"sync"
@@ -16,7 +17,7 @@ var (
 )
 
 // MaxPayloadSize is the maximal size for the payload of transport packets
-const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - uint16Size /*data len*/
+const MaxPayloadSize = math.MaxUint16 - 16 /*mac size*/ - 2 /*stream id and command*/ - uint16Size /*data len*/
 
 // VerifyCallbackFunc is used to verify that the identity and transmitted payload are valid for this connection.
 // If an  error is returned the handshake is canceled and the connection closed.
@@ -36,8 +37,6 @@ type ConnectionConfig struct {
 	LocalIdentity *PrivateIdentity
 	// PeerStatic is the remotes static identity (a smolcert), received during the handshake
 	PeerStatic *Identity
-	// Padding is the amount of bytes to pad messages with
-	Padding uint16
 	// MaxFrameLength specifies the maximum length a frame can have. This may depend on the MTU etc.
 	MaxFrameLength uint16
 	// ReadTimeout sets a deadline to every read operation
@@ -53,25 +52,62 @@ type ConnectionConfig struct {
 type Conn struct {
 	netConn net.Conn
 
-	streams           [255]*Stream
+	strs              *streams
 	currStreamWriteID int32
 	nextStreamWriteID int32
 	writeMtx          *sync.Mutex
+	readMtx           *sync.Mutex
+	currStreamReadID  int32
+
+	handshakeCond     *sync.Cond
+	handshakeMutex    *sync.Mutex
+	handshakeComplete bool
+	handshakeErr      error
+
+	channelBinding []byte
+	// TODO add halfconns
+	csIn  *cipherState
+	csOut *cipherState
 
 	testBuf []byte
+
+	config                *ConnectionConfig
+	maxFramePayloadLength int
 }
 
 func NewConn(conf *ConnectionConfig) (*Conn, error) {
+	maxFramePayloadLength := int(conf.MaxFrameLength) - 2 /*packet length*/ - frameHeaderSize - macSize
+	if n := maxFramePayloadLength % 16; n != 0 {
+		// Can't exceed maximum FrameLength (might be Layer2 limitation), so we substract here, to achieve a length
+		// which doesn't require padding by default
+		maxFramePayloadLength = maxFramePayloadLength - n
+	}
 	c := &Conn{
 		currStreamWriteID: 0,
 		writeMtx:          &sync.Mutex{},
+		readMtx:           &sync.Mutex{},
+		handshakeMutex:    &sync.Mutex{},
+		strs:              newStreams(),
+		config:            conf,
 	}
 
 	return c, nil
 }
 
-func (c *Conn) acquireConn(streamID uint8) (err error) {
+func (c *Conn) acquireConnForRead(streamID uint8) (err error) {
+
+	if !atomic.CompareAndSwapInt32(&c.currStreamReadID, 0, int32(streamID)) {
+		return errGoAway
+	}
+	c.readMtx.Lock()
+	defer c.readMtx.Unlock()
+
+	return nil
+}
+
+func (c *Conn) acquireConnForWrite(streamID uint8) (err error) {
 	// If not busy allow one stream to move the round robin forward
+
 	if !atomic.CompareAndSwapInt32(&c.currStreamWriteID, 0, int32(streamID)) {
 		return errGoAway
 	}
@@ -84,7 +120,7 @@ func (c *Conn) acquireConn(streamID uint8) (err error) {
 		if nextStreamID >= 255 {
 			nextStreamID = 0
 		}
-		s = c.streams[nextStreamID]
+		s = c.strs.get(uint8(nextStreamID))
 		if s != nil && s.needsWrite() {
 			break
 		}
@@ -96,48 +132,213 @@ func (c *Conn) acquireConn(streamID uint8) (err error) {
 	return nil
 }
 
-func (c *Conn) newStream(id uint8) *Stream {
+func (c *Conn) newStream(id uint8) (*Stream, error) {
 	s := &Stream{
 		writeLock:      0,
 		needsWriteFlag: 0,
 		conn:           c,
 		id:             id,
 	}
-	c.streams[id] = s
-	return s
+	if err := c.strs.insert(id, s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-type Stream struct {
-	writeLock      int32
-	conn           *Conn
-	needsWriteFlag int32
-	id             uint8
-}
+func (c *Conn) Handshake() error {
+	c.handshakeMutex.Lock()
 
-func (s *Stream) needsWrite() bool {
-	return atomic.LoadInt32(&s.needsWriteFlag) == 1
-}
-
-func (s *Stream) Write(buf []byte) (n int, err error) {
-	m := len(buf)
-
-	for m > 0 {
-		atomic.StoreInt32(&s.needsWriteFlag, 1)
-		for !atomic.CompareAndSwapInt32(&s.writeLock, 1, 0) {
-			s.conn.acquireConn(s.id)
+	for {
+		if err := c.handshakeErr; err != nil {
+			return err
 		}
-		// Simulate a write to a connection for now with this...
-		s.conn.testBuf = append(s.conn.testBuf, buf...)
-		// TODO write stuff to connection
-		m = m - len(buf)
-
-		atomic.StoreInt32(&s.needsWriteFlag, 0)
-		atomic.StoreInt32(&s.conn.currStreamWriteID, 0)
+		if c.handshakeComplete {
+			return nil
+		}
+		if c.handshakeCond == nil {
+			break
+		}
+		c.handshakeCond.Wait()
 	}
 
-	// Wait to be allowed to write
-	// Ask if we are allowed
-	// Write a frame
-	// go back to top
-	return
+	c.handshakeCond = sync.NewCond(c.handshakeMutex)
+	c.handshakeMutex.Unlock()
+
+	//c.in.Lock()
+	//defer c.in.Unlock()
+
+	c.handshakeMutex.Lock()
+
+	if c.config.isClient {
+		c.handshakeErr = c.runClientHandshake()
+	} else {
+		c.handshakeErr = c.runServerHandshake()
+		if c.handshakeErr != nil {
+			//fmt.Println(c.handshakeErr)
+			//send plaintext error to client for debug
+			// c.writePacket([]byte{0xFF}) //don't care about result
+		}
+	}
+
+	c.handshakeCond.Broadcast()
+	c.handshakeCond = nil
+
+	return c.handshakeErr
+}
+
+func (c *Conn) writePacket(buf []byte) (int, error) {
+	payloadLen := len(buf)
+	lenBuf := make([]byte, 2)
+	endianess.PutUint16(lenBuf, uint16(payloadLen))
+	if _, err := c.netConn.Write(lenBuf); err != nil {
+		return 0, err
+	}
+	return c.netConn.Write(buf)
+}
+
+func (c *Conn) readPacket() ([]byte, error) {
+	lenBuf := make([]byte, 2)
+	n, err := c.netConn.Read(lenBuf)
+	if err != nil {
+		return nil, err
+	}
+	if n != 2 {
+		return nil, errors.New("Unable to read packet length from connection")
+	}
+
+	pktLen := endianess.Uint16(lenBuf)
+	buf := make([]byte, pktLen)
+	n, err = c.netConn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	if n != int(pktLen) {
+		return nil, errors.New("Read incomplete packet")
+	}
+	return buf, nil
+}
+
+func (c *Conn) validateRemoteID(id *Identity, payload []byte) error {
+	// TODO call callback, so the user can verify identity and payload
+	return nil
+}
+
+func (c *Conn) runClientHandshake() error {
+	var (
+		msg         []byte
+		state       *handshakeState
+		err         error
+		csIn, csOut *cipherState
+	)
+
+	state = newState(&handshakeConfig{
+		Initiator:     true,
+		LocalIdentity: c.config.LocalIdentity,
+	})
+
+	hsInit := composeHandshakeInitPacket()
+	err = state.WriteMessage(hsInit, nil)
+	if err != nil {
+		return err
+	}
+	if _, err = c.writePacket(hsInit.Buf); err != nil {
+		return err
+	}
+
+	msg, err = c.readPacket()
+	if err != nil {
+		return err
+	}
+	hshkResp := handshakeResponseFromBuf(msg)
+	payload, err := state.ReadMessage([]byte{}, hshkResp)
+	if err != nil {
+		return err
+	}
+
+	remoteID := state.PeerIdentity()
+
+	if err := c.validateRemoteID(remoteID, payload); err != nil {
+		return fmt.Errorf("Validation of server id failed: %w", err)
+	}
+
+	handshakeFinMsg := composeHandshakeFinPacket()
+
+	paddedPayload, _ := padPayload(c.config.Payload)
+	if err = state.WriteMessage(handshakeFinMsg, paddedPayload); err != nil {
+		return err
+	}
+
+	if _, err := c.writePacket(handshakeFinMsg.Buf); err != nil {
+		return err
+	}
+
+	c.csIn, c.csOut, err = state.CipherStates()
+	if err != nil {
+		return err
+	}
+
+	if csOut == nil || csIn == nil {
+		return errors.New("Failed to create cipher states")
+	}
+
+	c.channelBinding = state.ChannelBinding()
+	c.handshakeComplete = true
+	return nil
+}
+
+func (c *Conn) runServerHandshake() error {
+
+	hs := newState(&handshakeConfig{
+		Initiator:     false,
+		LocalIdentity: c.config.LocalIdentity,
+	})
+
+	pkt, err := c.readPacket()
+	if err != nil {
+		return err
+	}
+
+	hndInit := handshakeInitFromBuf(pkt)
+	_, err = hs.ReadMessage(nil, hndInit)
+	if err != nil {
+		return err
+	}
+
+	hndResp := composeHandshakeResponse()
+
+	// TODO pad payload
+	if err = hs.WriteMessage(hndResp, c.config.Payload); err != nil {
+		return err
+	}
+
+	_, err = c.writePacket(hndResp.Buf)
+	if err != nil {
+		return err
+	}
+
+	pkt, err = c.readPacket()
+	if err != nil {
+		return err
+	}
+
+	hndFin := handshakeFinFromBuf(pkt)
+	payload, err := hs.ReadMessage(nil, hndFin)
+	if err != nil {
+		return err
+	}
+
+	remoteID := hs.PeerIdentity()
+	if err := c.validateRemoteID(remoteID, payload); err != nil {
+		return err
+	}
+
+	c.csOut, c.csIn, err = hs.CipherStates()
+	if err != nil {
+		return err
+	}
+
+	c.channelBinding = hs.ChannelBinding()
+	c.config.PeerStatic = remoteID
+	c.handshakeComplete = true
+	return nil
 }

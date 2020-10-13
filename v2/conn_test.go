@@ -27,7 +27,7 @@ func TestConcurrentConnAccess(t *testing.T) {
 		n, err := rand.Read(buf)
 		require.NoError(t, err)
 		assert.EqualValues(t, streamWriteSize, n)
-		s := conn.newStream(uint8(i))
+		s, _ := conn.newStream(uint8(i))
 		go func(i int, s *Stream, buf []byte) {
 
 			s.Write(buf)
