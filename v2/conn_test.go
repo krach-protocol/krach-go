@@ -87,6 +87,7 @@ func TestHandshake(t *testing.T) {
 	testMsg := []byte(`Well, all information looks like noise until you break the code.`)
 
 	encMsg := clientConn.csOut.Encrypt([]byte{}, nil, testMsg)
+	assert.EqualValues(t, len(testMsg)+16, len(encMsg)) // Ensure that the message has a correct mac
 	decrMsg, err := serverConn.csIn.Decrypt([]byte{}, nil, encMsg)
 	require.NoError(t, err)
 
