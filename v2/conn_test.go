@@ -82,4 +82,13 @@ func TestHandshake(t *testing.T) {
 	}()
 
 	wg.Wait()
+
+	// we should now have valid cipher states on both sides
+	testMsg := []byte(`Well, all information looks like noise until you break the code.`)
+
+	encMsg := clientConn.csOut.Encrypt([]byte{}, nil, testMsg)
+	decrMsg, err := serverConn.csIn.Decrypt([]byte{}, nil, encMsg)
+	require.NoError(t, err)
+
+	assert.EqualValues(t, testMsg, decrMsg)
 }
