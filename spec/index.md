@@ -25,10 +25,8 @@ on single hosts.
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |   Stream ID   |    Version    |
+|          Packetlength         |    Version    | Handshake Type|
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Handshake Type|                                               |
-+-+-+-+-+-+-+-+-+                                               +
 |                                                               |
 +                                                               +
 |                                                               |
@@ -36,15 +34,15 @@ on single hosts.
 |                                                               |
 +                                                               +
 |                                                               |
-+                                                               +
++                       EphemeralPublicKey                      +
 |                                                               |
 +                                                               +
 |                                                               |
 +                                                               +
-|                       EphemeralPublicKey                      |
-+               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|               |
-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
 ## HandshakeResponse
 
@@ -63,10 +61,8 @@ FIXME: We should pad the encrypted payload and store the padded length at the be
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |   Stream ID   |    Version    |
+|          Packetlength         |    Version    | Handshake Type|
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Handshake Type|                                               |
-+-+-+-+-+-+-+-+-+                                               +
 |                                                               |
 +                                                               +
 |                                                               |
@@ -74,15 +70,15 @@ FIXME: We should pad the encrypted payload and store the padded length at the be
 |                                                               |
 +                                                               +
 |                                                               |
-+                                                               +
++                       EphemeralPublicKey                      +
 |                                                               |
 +                                                               +
 |                                                               |
 +                                                               +
-|                       EphemeralPublicKey                      |
-+               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|               |                                               |
-+-+-+-+-+-+-+-+-+                                               +
+|                                                               |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
 +                   Encrypted Payload (n-bytes)                 +
 |                                                               |
@@ -115,10 +111,8 @@ and constructing his view of the cipher state
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |   Stream ID   |    Version    |
+|          Packetlength         |    Version    | Handshake Type|
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Handshake Type|                                               |
-+-+-+-+-+-+-+-+-+                                               +
 |                                                               |
 +                  Encrypted Payload (n-bytes)                  +
 |                                                               |

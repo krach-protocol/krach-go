@@ -1,5 +1,5 @@
-Packetlength:16,Stream ID:8,Version:8,Handshake Type:8,EphemeralPublicKey:256
-Packetlength:16,Stream ID:8,Version:8,Handshake Type:8,EphemeralPublicKey:256, Encrypted Payload (n-bytes):88
+Packetlength:16,Version:8,Handshake Type:8,EphemeralPublicKey:256
+Packetlength:16,Version:8,Handshake Type:8,EphemeralPublicKey:256, Encrypted Payload (n-bytes):88
 Smolcert length:16,Smolcert (n-bytes):64,Payload length:16,Payload (n-bytes):64
-Packetlength:16,Stream ID:8,Version:8,Handshake Type:8,Encrypted Payload (n-bytes):64
+Packetlength:16,Version:8,Handshake Type:8,Encrypted Payload (n-bytes):64
 Packetlength:16,Stream ID:8,Encrypted Payload (n-bytes):64
