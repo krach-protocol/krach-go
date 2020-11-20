@@ -22,6 +22,7 @@ static and well known there are no length fields.
 TODO: Think about SNI-like mechanism, which should also include something like a "Realm" for easier multi tenancy 
 on single hosts.
 
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -43,6 +44,7 @@ on single hosts.
 +                                                               +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 ## HandshakeResponse
 
@@ -58,6 +60,7 @@ The `Handshake Type` field must be set to `0x02`, as well as field `Stream ID` m
 
 FIXME: We should pad the encrypted payload and store the padded length at the beginning.
 
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -83,10 +86,13 @@ FIXME: We should pad the encrypted payload and store the padded length at the be
 +                   Encrypted Payload (n-bytes)                 +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 The decrypted form of the encrypted payload consists of a Smolcert and an optional payload,
 both length prefixed. If the total length of length prefixes and actual data is not divisible by
 16 the data is padded with up to 15 bytes until it is divisible by 16 (see chapter "Encrypted Payloads")
+
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -102,12 +108,14 @@ both length prefixed. If the total length of length prefixes and actual data is 
 +                       Payload (n-bytes)                       +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 ## HandshakeFin
 
 The Initiator sends the Handshake Fin packet after receiving the Handshake response
 and constructing his view of the cipher state
 
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -117,9 +125,12 @@ and constructing his view of the cipher state
 +                  Encrypted Payload (n-bytes)                  +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 Again the encrypted payload consists of a (client) Smolcert and an optional
 payload:
+
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -135,6 +146,7 @@ payload:
 +                       Payload (n-bytes)                       +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 ## TransportPacket
 
@@ -145,6 +157,7 @@ for the AEAD.
 FIXME: Does the additional data need padding too?
 The encrypted payload includes the 128 bit authentication tag.
 
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -152,11 +165,13 @@ The encrypted payload includes the 128 bit authentication tag.
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
 |                  Encrypted Payload (n-bytes)                  |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 The encrypted payload has the following structure.
 The field `Steam ID` here must not be `0x00` as this Stream ID is reserved
 for management packets.
 
+```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -166,6 +181,7 @@ for management packets.
 +                       Payload (n-bytes)                       +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
 
 ### Stream Commands
 
