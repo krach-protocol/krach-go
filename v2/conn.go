@@ -31,7 +31,7 @@ type CertPool interface {
 
 // ConnectionConfig provides configuration details for the Dial and Listen
 type ConnectionConfig struct {
-	isClient bool
+	IsClient bool
 	Payload  []byte //additional certificates, configuration
 	// LocalIdentity is this sides identity including the ed25519.PrivateKey
 	LocalIdentity *PrivateIdentity
@@ -120,33 +120,38 @@ func (c *Conn) acquireConnForWrite(streamID uint8) (err error) {
 	if !atomic.CompareAndSwapInt32(&c.currStreamWriteID, 0, int32(streamID)) {
 		return errGoAway
 	}
-	c.writeMtx.Lock()
-	defer c.writeMtx.Unlock()
+	fmt.Printf("Stream %d is handling write\n", streamID)
+	//c.writeMtx.Lock()
+	//defer c.writeMtx.Unlock()
 	// we are not busy, so we select the next stream eligible to write
 	var s *Stream
 	nextStreamID := atomic.LoadInt32(&c.nextStreamWriteID)
 	for {
 		if nextStreamID >= 255 {
-			nextStreamID = 0
+			nextStreamID = 1 // 0 is a special stream reserved for future use
 		}
 		s = c.strs.get(uint8(nextStreamID))
 		if s != nil && s.needsWrite() {
+			nextStreamID++
 			break
 		}
 		nextStreamID++
 	}
+	fmt.Printf("Next stream ID is now %d\n", nextStreamID)
 	atomic.StoreInt32(&c.nextStreamWriteID, nextStreamID)
 
 	atomic.StoreInt32(&s.writeLock, 1)
 	return nil
 }
 
-func (c *Conn) newStream(id uint8) (*Stream, error) {
+func (c *Conn) NewStream(id uint8) (*Stream, error) {
 	s := &Stream{
 		writeLock:      0,
 		needsWriteFlag: 0,
 		conn:           c,
 		id:             id,
+		inBufLock:      &sync.Mutex{},
+		inBuf:          make([]byte, 0),
 	}
 	if err := c.strs.insert(id, s); err != nil {
 		return nil, err
@@ -178,7 +183,7 @@ func (c *Conn) Handshake() error {
 
 	c.handshakeMutex.Lock()
 
-	if c.config.isClient {
+	if c.config.IsClient {
 		c.handshakeErr = c.runClientHandshake()
 	} else {
 		c.handshakeErr = c.runServerHandshake()

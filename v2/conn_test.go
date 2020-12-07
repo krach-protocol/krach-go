@@ -1,6 +1,7 @@
 package krach
 
 import (
+	"fmt"
 	"math/rand"
 	"net"
 	"sync"
@@ -31,7 +32,7 @@ func TestConcurrentConnAccess(t *testing.T) {
 		n, err := rand.Read(buf)
 		require.NoError(t, err)
 		assert.EqualValues(t, streamWriteSize, n)
-		s, _ := conn.newStream(uint8(i))
+		s, _ := conn.NewStream(uint8(i))
 		go func(i int, s *Stream, buf []byte) {
 
 			s.Write(buf)
@@ -43,7 +44,7 @@ func TestConcurrentConnAccess(t *testing.T) {
 	assert.EqualValues(t, streamWriteSize*streamCount, len(conn.testBuf))
 }
 
-func TestHandshake(t *testing.T) {
+func TestOverallConnection(t *testing.T) {
 	rootCert, rootKey, err := smolcert.SelfSignedCertificate("root", time.Now(), time.Now().Add(time.Minute*5), nil)
 	require.NoError(t, err)
 	clientCert, clientKey, err := smolcert.ClientCertificate("client", 1, time.Now(), time.Now().Add(time.Minute*5), nil, rootKey, rootCert.Subject)
@@ -53,11 +54,11 @@ func TestHandshake(t *testing.T) {
 
 	clientNetConn, serverNetConn := net.Pipe()
 	clientConf := DefaultConnectionConfig()
-	clientConf.isClient = true
+	clientConf.IsClient = true
 	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
-	serverConf.isClient = false
+	serverConf.IsClient = false
 	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
 
 	clientConn, _ := NewConn(clientConf)
@@ -92,4 +93,48 @@ func TestHandshake(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.EqualValues(t, testMsg, decrMsg)
+
+	// We have established that the cipherstates are valid
+
+	streamCount := 10
+
+	clientStreams := make([]*Stream, streamCount)
+	serverStreams := make([]*Stream, streamCount)
+
+	for i := 10; i < 10+streamCount; i++ {
+		cs, err := clientConn.NewStream(uint8(i))
+		require.NoError(t, err, "Failed to create client stream %d", i)
+		clientStreams[i-10] = cs
+
+		ss, err := serverConn.NewStream(uint8(i))
+		require.NoError(t, err)
+		serverStreams[i-10] = ss
+	}
+
+	wg = &sync.WaitGroup{}
+	for i, cs := range clientStreams {
+		wg.Add(2)
+
+		go func(cs *Stream) {
+			defer wg.Done()
+
+			n, err := cs.Write(testMsg)
+			assert.NoError(t, err)
+			assert.EqualValues(t, len(testMsg), n)
+			fmt.Printf("Stream %d has written\n", cs.id)
+		}(cs)
+
+		ss := serverStreams[i]
+
+		go func(ss *Stream) {
+			defer wg.Done()
+			recvBuf := make([]byte, 1024)
+			n, err := ss.Read(recvBuf)
+			assert.NoError(t, err)
+			assert.EqualValues(t, len(testMsg), n)
+			assert.EqualValues(t, testMsg, recvBuf[:n])
+		}(ss)
+	}
+
+	wg.Wait()
 }
