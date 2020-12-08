@@ -96,7 +96,7 @@ var (
 										return
 									}
 									log.Printf("Received %d bytes from %s", n, conn.RemoteAddr().String())
-									// TODO print received bytes
+									printBuf(readBuf[:n])
 								}
 							}
 						}(clientCtx, conn)
@@ -204,4 +204,16 @@ func er(err error) {
 
 func main() {
 	rootCmd.Execute()
+}
+
+var bytesPerLine = 16
+
+func printBuf(buf []byte) {
+	for i, b := range buf {
+		fmt.Printf("0x%X ", b)
+		if i%bytesPerLine == 0 {
+			fmt.Printf("\n")
+		}
+	}
+	fmt.Printf("\n")
 }
