@@ -7,10 +7,18 @@ GO_BUILD_ENV_TEST_VARS			?= GO111MODULE=on GOMAXPROCS=1
 
 GO_TEST 				?= $(GO_BUILD_ENV_TEST_VARS) go test -timeout 30s -v -covermode=atomic -coverprofile=single.coverprofile # Disable -race for now
 
-.PHONY: test clean benchmark
+.PHONY: test clean benchmark build-test-helper
 
 clean:
 	rm -f *.coverprofile
+
+test-helper:
+	$(GO_BUILD_ENV_VARS) go build -o test-helper ./cmd/krach-test
+
+test-helper_linux_amd64:
+	$(GO_BUILD_ENV_VARS) GOOS=linux GOARCH=amd64 go build -o test-helper_linux_amd64 ./cmd/krach-test
+
+build-test-helper: test-helper test-helper_linux_amd64
 
 benchmark:
 	$(GO_BUILD_ENV_TEST_VARS) go test -timeout 60s -v -benchmem -bench=.

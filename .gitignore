@@ -1,3 +1,5 @@
 .vscode/
 target/
 *.coverprofile
+test-helper
+test-helper_linux_amd64
