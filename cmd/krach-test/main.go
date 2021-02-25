@@ -69,7 +69,7 @@ var (
 						go func(ctx context.Context, conn net.Conn) {
 							defer conn.Close()
 							log.Printf("Opened socket for %s, running handshake", conn.RemoteAddr().String())
-							serverConn, err := krach.NewConn(serverConf)
+							serverConn, err := krach.NewConn(serverConf, conn)
 							if err != nil {
 								log.Printf("Failed to create krach server handler: %s", err)
 								return
