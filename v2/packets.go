@@ -241,7 +241,9 @@ func (h *handshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
 	}
 	idLen := binary.LittleEndian.Uint16(h.Buf[2:])
 	if len(h.Buf) < int(4+idLen) {
-		return nil, fmt.Errorf("HandshakeInit has invalid ID length field")
+		// TODO add expected and read length
+		return nil, fmt.Errorf("HandshakeFin has invalid ID length field, received length %d bytes, packet length %d bytes, expected packet length %d",
+			idLen, len(h.Buf), idLen+4)
 	}
 	return h.Buf[4 : idLen+4], nil
 }
