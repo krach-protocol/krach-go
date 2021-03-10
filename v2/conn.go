@@ -47,6 +47,8 @@ type ConnectionConfig struct {
 	HandshakeTimeout time.Duration
 	// VerifyCallback can be called to validate the identity and received payload during the handshake
 	VerifyCallback VerifyCallbackFunc
+
+	Debug bool
 }
 
 func DefaultConnectionConfig() *ConnectionConfig {
@@ -84,7 +86,7 @@ type Conn struct {
 	maxFramePayloadLength int
 }
 
-func NewConn(conf *ConnectionConfig) (*Conn, error) {
+func NewConn(conf *ConnectionConfig, netConn net.Conn) (*Conn, error) {
 	maxFramePayloadLength := int(conf.MaxFrameLength) - 2 /*packet length*/ - frameHeaderSize - macSize
 	if n := maxFramePayloadLength % 16; n != 0 {
 		// Can't exceed maximum FrameLength (might be Layer2 limitation), so we substract here, to achieve a length
@@ -98,6 +100,7 @@ func NewConn(conf *ConnectionConfig) (*Conn, error) {
 		handshakeMutex:    &sync.Mutex{},
 		strs:              newStreams(),
 		config:            conf,
+		netConn:           netConn,
 	}
 
 	return c, nil
@@ -227,6 +230,10 @@ func (c *Conn) readPacket() ([]byte, error) {
 		return nil, err
 	}
 	if n != int(pktLen) {
+		if c.config.Debug {
+			fmt.Printf("Incomplete packet expected %d bytes, git %d bytes: \n", pktLen, n)
+			printBuf(buf[:n])
+		}
 		return nil, errors.New("Read incomplete packet")
 	}
 	return buf, nil
@@ -354,4 +361,16 @@ func (c *Conn) runServerHandshake() error {
 	c.config.PeerStatic = remoteID
 	c.handshakeComplete = true
 	return nil
+}
+
+var bytesPerLine = 16
+
+func printBuf(buf []byte) {
+	for i, b := range buf {
+		fmt.Printf("0x%X ", b)
+		if i%bytesPerLine == 0 {
+			fmt.Printf("\n")
+		}
+	}
+	fmt.Printf("\n")
 }
