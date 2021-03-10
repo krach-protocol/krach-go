@@ -15,7 +15,7 @@ import (
 
 func TestConcurrentConnAccess(t *testing.T) {
 	t.Skip("Need to finish handshake first")
-	conn, err := NewConn(DefaultConnectionConfig())
+	conn, err := NewConn(DefaultConnectionConfig(), nil)
 	require.NoError(t, err)
 
 	conn.testBuf = []byte{}
@@ -61,29 +61,28 @@ func TestOverallConnection(t *testing.T) {
 	serverConf.IsClient = false
 	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
 
-	clientConn, _ := NewConn(clientConf)
-	clientConn.netConn = clientNetConn
+	clientConn, _ := NewConn(clientConf, clientNetConn)
 
-	serverConn, _ := NewConn(serverConf)
-	serverConn.netConn = serverNetConn
+	serverConn, _ := NewConn(serverConf, serverNetConn)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 
 	go func() {
 		err := clientConn.runClientHandshake()
-		assert.NoError(t, err, "Client handshake failed")
+		require.NoError(t, err, "Client handshake failed")
 		wg.Done()
 	}()
 
 	go func() {
 		err := serverConn.runServerHandshake()
-		assert.NoError(t, err, "Server handshake failed")
+		require.NoError(t, err, "Server handshake failed")
 		wg.Done()
 	}()
 
 	wg.Wait()
 
+	fmt.Println("Handshake finished, testing streams")
 	// we should now have valid cipher states on both sides
 	testMsg := []byte(`Well, all information looks like noise until you break the code.`)
 
@@ -96,7 +95,7 @@ func TestOverallConnection(t *testing.T) {
 
 	// We have established that the cipherstates are valid
 
-	streamCount := 10
+	streamCount := 1
 
 	clientStreams := make([]*Stream, streamCount)
 	serverStreams := make([]*Stream, streamCount)
