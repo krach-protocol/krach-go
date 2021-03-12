@@ -288,10 +288,11 @@ func (c *Conn) runClientHandshake() error {
 		return err
 	}
 
+	fmt.Println("Writing handshake fin message")
 	if _, err := c.writePacket(handshakeFinMsg.Buf); err != nil {
 		return err
 	}
-
+	fmt.Println("Finishing client handshake run")
 	c.csIn, c.csOut, err = state.CipherStates()
 	if err != nil {
 		return err

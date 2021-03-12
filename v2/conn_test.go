@@ -69,20 +69,25 @@ func TestOverallConnection(t *testing.T) {
 	wg.Add(2)
 
 	go func() {
+		defer wg.Done()
+		fmt.Println("Running client handshake")
 		err := clientConn.runClientHandshake()
-		require.NoError(t, err, "Client handshake failed")
-		wg.Done()
+		fmt.Println("Finished client handshake")
+		assert.NoError(t, err, "Client handshake failed")
 	}()
 
 	go func() {
+		defer wg.Done()
+		fmt.Println("Running server handshake")
 		err := serverConn.runServerHandshake()
-		require.NoError(t, err, "Server handshake failed")
-		wg.Done()
+		fmt.Println("Finished server handshake")
+		assert.NoError(t, err, "Server handshake failed")
 	}()
 
+	fmt.Println("Waiting for handshake to finish")
 	wg.Wait()
 
-	fmt.Println("Handshake finished, testing streams")
+	fmt.Println("Handshake finished, testing cipher states")
 	// we should now have valid cipher states on both sides
 	testMsg := []byte(`Well, all information looks like noise until you break the code.`)
 
@@ -92,6 +97,8 @@ func TestOverallConnection(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.EqualValues(t, testMsg, decrMsg)
+
+	fmt.Println("Verified cipher states, testing streams")
 
 	// We have established that the cipherstates are valid
 

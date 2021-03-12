@@ -187,7 +187,8 @@ func (h *handshakeResponsePacket) ReadEncryptedIdentity() ([]byte, error) {
 }
 
 func (h *handshakeResponsePacket) ReadPayload() ([]byte, error) {
-	certLen := binary.LittleEndian.Uint16(h.Buf[34:])
+	return nil, nil
+	/*certLen := binary.LittleEndian.Uint16(h.Buf[34:])
 	payloadLenOffset := 34 + 2 + certLen
 	// Check if we have a payload at all
 	if len(h.Buf) < int(payloadLenOffset) {
@@ -204,7 +205,7 @@ func (h *handshakeResponsePacket) ReadPayload() ([]byte, error) {
 	if len(h.Buf) != int(payloadLenOffset+payloadLen+2) {
 		return nil, fmt.Errorf("Handshake response packet has invalid payload length field")
 	}
-	return h.Buf[payloadLenOffset+2:], nil
+	return h.Buf[payloadLenOffset+2:], nil */
 }
 
 type handshakeFinPacket struct {
@@ -239,13 +240,13 @@ func (h *handshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
 	if len(h.Buf) < 15 {
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[2:])
-	if len(h.Buf) < int(4+idLen) {
-		// TODO add expected and read length
+	// We rely on the overall packet length to be correct.
+	/*idLen := endianess.Uint16(h.Buf[:2])
+	if len(h.Buf) < int(2+idLen) {
 		return nil, fmt.Errorf("HandshakeFin has invalid ID length field, received length %d bytes, packet length %d bytes, expected packet length %d",
-			idLen, len(h.Buf), idLen+4)
-	}
-	return h.Buf[4 : idLen+4], nil
+			idLen, len(h.Buf), idLen+2)
+	}*/
+	return h.Buf[2:], nil
 }
 
 func (h *handshakeFinPacket) ReadPayload() ([]byte, error) {
@@ -254,7 +255,8 @@ func (h *handshakeFinPacket) ReadPayload() ([]byte, error) {
 		// the identity length field is 12 bytes. The identity can't be zero bytes
 		return nil, fmt.Errorf("HandshakeFinPacket is too short")
 	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[2:4])
+	return nil, nil // Ignore payload for now
+	/* idLen := binary.LittleEndian.Uint16(h.Buf[2:4])
 	if len(h.Buf) == int(4+idLen) {
 		// We do not have any payload
 		return []byte{}, nil
@@ -264,20 +266,22 @@ func (h *handshakeFinPacket) ReadPayload() ([]byte, error) {
 	if len(h.Buf) != int(4+idLen+2+payloadLen) {
 		return nil, fmt.Errorf("HandshakeFinPacket specified invalid payload length")
 	}
-	return h.Buf[(4 + idLen + 2):], nil
+	return h.Buf[(4 + idLen + 2):], nil */
 }
 
 func (h *handshakeFinPacket) WriteEncryptedPayload(p []byte) {
-	idLen := int(binary.LittleEndian.Uint16(h.Buf[2:]))
-	expectedLen := idLen + 4 + 2 + len(p)
+	if len(p) <= 16 {
+		// Ignore empty payloads
+		return
+	}
+	// idLen := int(binary.LittleEndian.Uint16(h.Buf[0:2]))
+	expectedLen := 4 + len(p)
 	if len(h.Buf) < expectedLen {
 		buf := make([]byte, expectedLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-
-	binary.LittleEndian.PutUint16(h.Buf[4+idLen:], uint16(len(p)))
-	copy(h.Buf[4+idLen+2:], p)
+	copy(h.Buf[4:], p)
 }
 
 func (h *handshakeFinPacket) WriteEPublic(e [32]byte) {
@@ -286,14 +290,14 @@ func (h *handshakeFinPacket) WriteEPublic(e [32]byte) {
 
 func (h *handshakeFinPacket) WriteEncryptedIdentity(s []byte) {
 	idLen := len(s)
-	if len(h.Buf) < 4+idLen {
+	if len(h.Buf) < 2+idLen {
 		// Resize packet buf if necessary
-		buf := make([]byte, 4+idLen)
+		buf := make([]byte, 2+idLen)
 		copy(buf, h.Buf)
 		h.Buf = buf
 	}
-	binary.LittleEndian.PutUint16(h.Buf[2:], uint16(idLen))
-	copy(h.Buf[4:], s)
+	// binary.LittleEndian.PutUint16(h.Buf[2:], uint16(idLen))
+	copy(h.Buf[2:], s)
 }
 
 func padPayload(buf []byte) ([]byte, uint8) {
