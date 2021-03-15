@@ -42,6 +42,7 @@ var (
 
 			serverConf := krach.DefaultConnectionConfig()
 			serverConf.IsClient = false
+			serverConf.Debug = true
 			serverConf.LocalIdentity = serverIdentity
 
 			sigs := make(chan os.Signal, 1)
