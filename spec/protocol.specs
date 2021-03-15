@@ -6,3 +6,6 @@ Handshake Type:8,Packetlength:16,EphemeralPublicKey:256,ID length:16,Encrypted I
 HandshakeType: 8,PacketLength:16,ID length:16,Encrypted Identity (n-bytes):64,Payload length:16,Payload (n-bytes):64
 # Transport Packet
 Packetlength:16,Stream ID:8,Encrypted Payload (n-bytes):64
+
+# Encrypted Payload
+Padding:8,Payload:24

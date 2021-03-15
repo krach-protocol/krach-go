@@ -17,7 +17,9 @@ The HandshakeInit packet is sent from the Initiator (Client) to the Responder (s
 The field `HandshakeType` is set to the value `0x01` to signal that this is a HandshakeInit
 packet. The rest of the packet contains a Ed25519 ephemeral (before connection startup randomly
 generated) public key which is always 32 bytes in length. Since the length of this packet type is
-static and well known there are no length fields.
+static and well known there are no length fields, except for the overall packet length to simplify
+packet parsing code in implementations. This packet also signals the protocol version the client supports
+which is not repeated afterwards.
 
 TODO: Think about SNI-like mechanism, which should also include something like a "Realm" for easier multi tenancy 
 on single hosts.
@@ -26,7 +28,7 @@ on single hosts.
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |    Version    | Handshake Type|
+|    Version    | Handshake Type|          Packetlength         |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |                                                               |
 +                                                               +
@@ -55,57 +57,57 @@ from the server for the client to validate. Additionally (depending on the trans
 the server can send additional payloads which may be relevant for the connection setup. Both, the Smolcert
 and the payload, are encrypted via an AEAD (ChaCha2020-Poly1305), so the encrypted payload contains
 128 bytes authentication tag at the end.
+The SmolCert and the encrypted payload are stored independently since they are encrypted with the handshake
+symmetric cipher state at different points in time. The SmolCert is used as input to the mix and hash algorithms
+to create a new symmetric cipher key which is then used to encrypt the payload.
 
-The `Handshake Type` field must be set to `0x02`, as well as field `Stream ID` must be `0x00`.
+TODO: Inspect if it is a risk to encrypt a 0 length array and add zhe generated hmac to the packet
 
-FIXME: We should pad the encrypted payload and store the padded length at the beginning.
+The `Handshake Type` field must be set to `0x02`.
 
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |    Version    | Handshake Type|
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-+                                                               +
-|                                                               |
-+                                                               +
-|                                                               |
-+                                                               +
-|                                                               |
-+                       EphemeralPublicKey                      +
-|                                                               |
-+                                                               +
-|                                                               |
-+                                                               +
-|                                                               |
-+                                                               +
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-+                   Encrypted Payload (n-bytes)                 +
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-The decrypted form of the encrypted payload consists of a Smolcert and an optional payload,
-both length prefixed. If the total length of length prefixes and actual data is not divisible by
-16 the data is padded with up to 15 bytes until it is divisible by 16 (see chapter "Encrypted Payloads")
+The SmolCert and and Encrypted Payload are both stored padded to the correct length (length divisible by 16),
+with the padding information prefixing the unecrypted SmolCert/Payload:
 
 ```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Padding    |        Smolcert length        |               |
+|    Padding    |                    Payload                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Handshake Type|          Packetlength         |               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
-|                       Smolcert (n-bytes)                      |
+|                                                               |
++                                                               +
+|                                                               |
++                                                               +
+|                                                               |
++                                                               +
+|                                                               |
++                                                               +
+|                                                               |
++                                                               +
+|                                                               |
++                                                               +
+|                       EphemeralPublicKey                      |
 +                                               +-+-+-+-+-+-+-+-+
-|                                               | Payload length|
+|                                               |   ID length   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               |                                               |
++-+-+-+-+-+-+-+-+                                               +
+|                  Encrypted Identity (n-bytes)                 |
++                                               +-+-+-+-+-+-+-+-+
+|                                               | Payload lenght|
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |               |                                               |
 +-+-+-+-+-+-+-+-+                                               +
 |                                                               |
-+                       Payload (n-bytes)                       +
++                  Encrypted Payload (n-bytes)                  +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
@@ -119,32 +121,27 @@ and constructing his view of the cipher state
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|          Packetlength         |    Version    | Handshake Type|
+| HandshakeType |          PacketLength         |   ID length   |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               |                                               |
++-+-+-+-+-+-+-+-+                                               +
+|                  Encrypted Identity (n-bytes)                 |
++               +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               |         Payload length        |               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
 |                                                               |
-+                  Encrypted Payload (n-bytes)                  +
++                       Payload (n-bytes)                       +
 |                                                               |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-Again the encrypted payload consists of a (client) Smolcert and an optional
-payload:
-
+Again the SmolCert and Payload are prefixed by the amount of padded bytes
+and are padded to a suitable length:
 ```
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Padding    |        Smolcert length        |               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
-|                       Smolcert (n-bytes)                      |
-+                                               +-+-+-+-+-+-+-+-+
-|                                               | Payload length|
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|               |                                               |
-+-+-+-+-+-+-+-+-+                                               +
-|                                                               |
-+                       Payload (n-bytes)                       +
-|                                                               |
+|    Padding    |                    Payload                    |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
@@ -211,4 +208,3 @@ to the lower nibble of a (new) first byte.
 Equally after decryption of a payload the amount of padded bytes must be read from the lower nibble of 
 the first byte. This amount of bytes must be truncated from the end of the payload as must be the first
 byte to get the original unencrypted payload.
-
