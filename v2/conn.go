@@ -203,40 +203,53 @@ func (c *Conn) Handshake() error {
 	return c.handshakeErr
 }
 
-func (c *Conn) writePacket(buf []byte) (int, error) {
-	payloadLen := len(buf)
-	lenBuf := make([]byte, 2)
-	endianess.PutUint16(lenBuf, uint16(payloadLen))
-	if _, err := c.netConn.Write(lenBuf); err != nil {
-		return 0, err
-	}
-	return c.netConn.Write(buf)
+// buf must contain a correctly formatted packet including the length prefix etc
+func (c *Conn) writePacket(pkt writeableHandshakeMessage) (int, error) {
+	return c.netConn.Write(pkt.Serialize())
 }
 
-func (c *Conn) readPacket() ([]byte, error) {
-	lenBuf := make([]byte, 2)
-	n, err := c.netConn.Read(lenBuf)
+func (c *Conn) readPacket(pkt readableHandshakeMessage) error {
+	buf := make([]byte, 4096)
+	var receivedPktType packetType
+	pktLength := 0
+	_, err := c.netConn.Read(buf[:1])
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if n != 2 {
-		return nil, errors.New("Unable to read packet length from connection")
+	payloadOffset := 0
+
+	if pkt.PacketType() == packetTypeHandshakeInit {
+		payloadOffset = 4
+		if KrachVersion != buf[0] {
+			return errors.New("Unexpected protocol version")
+		}
+		_, err = c.netConn.Read(buf[1:4])
+		if err != nil {
+			return err
+		}
+		receivedPktType = packetType(buf[1])
+		pktLength = int(endianess.Uint16(buf[2:4]))
+	} else {
+		payloadOffset = 3
+		receivedPktType = packetType(buf[0])
+		_, err = c.netConn.Read(buf[1:3])
+		if err != nil {
+			return err
+		}
+		pktLength = int(endianess.Uint16(buf[1:3]))
 	}
 
-	pktLen := endianess.Uint16(lenBuf)
-	buf := make([]byte, pktLen)
-	n, err = c.netConn.Read(buf)
+	if receivedPktType != pkt.PacketType() {
+		return fmt.Errorf("Received unexpected packet type during handshake. Expected %d, but got %d", pkt.PacketType(), receivedPktType)
+	}
+	n, err := c.netConn.Read(buf[payloadOffset:])
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if n != int(pktLen) {
-		if c.config.Debug {
-			fmt.Printf("Incomplete packet expected %d bytes, git %d bytes: \n", pktLen, n)
-			printBuf(buf[:n])
-		}
-		return nil, errors.New("Read incomplete packet")
+	if n != pktLength {
+		return fmt.Errorf("Failed to read complete packet. Expected to read %d bytes, but only got %d bytes", pktLength, n)
 	}
-	return buf, nil
+	return pkt.Deserialize(buf[payloadOffset : n+payloadOffset])
 }
 
 func (c *Conn) validateRemoteID(id *Identity, payload []byte) error {
@@ -246,7 +259,6 @@ func (c *Conn) validateRemoteID(id *Identity, payload []byte) error {
 
 func (c *Conn) runClientHandshake() error {
 	var (
-		msg   []byte
 		state *handshakeState
 		err   error
 	)
@@ -256,20 +268,21 @@ func (c *Conn) runClientHandshake() error {
 		LocalIdentity: c.config.LocalIdentity,
 	})
 
-	hsInit := composeHandshakeInitPacket()
+	hsInit := &handshakeInitPacket{}
 	err = state.WriteMessage(hsInit, nil)
 	if err != nil {
 		return err
 	}
-	if _, err = c.writePacket(hsInit.Buf); err != nil {
+	if _, err = c.writePacket(hsInit); err != nil {
 		return err
 	}
 
-	msg, err = c.readPacket()
+	hshkResp := &handshakeResponsePacket{}
+	err = c.readPacket(hshkResp)
 	if err != nil {
 		return err
 	}
-	hshkResp := handshakeResponseFromBuf(msg)
+
 	payload, err := state.ReadMessage([]byte{}, hshkResp)
 	if err != nil {
 		return err
@@ -281,18 +294,16 @@ func (c *Conn) runClientHandshake() error {
 		return fmt.Errorf("Validation of server id failed: %w", err)
 	}
 
-	handshakeFinMsg := composeHandshakeFinPacket()
+	handshakeFinMsg := &handshakeFinPacket{}
 
-	paddedPayload, _ := padPayload(c.config.Payload)
-	if err = state.WriteMessage(handshakeFinMsg, paddedPayload); err != nil {
+	if err = state.WriteMessage(handshakeFinMsg, c.config.Payload); err != nil {
 		return err
 	}
 
-	fmt.Println("Writing handshake fin message")
-	if _, err := c.writePacket(handshakeFinMsg.Buf); err != nil {
+	fmt.Println("Sending handshake fin message")
+	if _, err := c.writePacket(handshakeFinMsg); err != nil {
 		return err
 	}
-	fmt.Println("Finishing client handshake run")
 	c.csIn, c.csOut, err = state.CipherStates()
 	if err != nil {
 		return err
@@ -314,35 +325,36 @@ func (c *Conn) runServerHandshake() error {
 		LocalIdentity: c.config.LocalIdentity,
 	})
 
-	pkt, err := c.readPacket()
+	hsInit := &handshakeInitPacket{}
+
+	err := c.readPacket(hsInit)
 	if err != nil {
 		return err
 	}
 
-	hndInit := handshakeInitFromBuf(pkt)
-	_, err = hs.ReadMessage(nil, hndInit)
+	_, err = hs.ReadMessage(nil, hsInit)
 	if err != nil {
 		return err
 	}
 
-	hndResp := composeHandshakeResponse()
+	hndResp := &handshakeResponsePacket{}
 
-	// TODO pad payload
 	if err = hs.WriteMessage(hndResp, c.config.Payload); err != nil {
 		return err
 	}
 
-	_, err = c.writePacket(hndResp.Buf)
+	_, err = c.writePacket(hndResp)
 	if err != nil {
 		return err
 	}
 
-	pkt, err = c.readPacket()
+	hndFin := &handshakeFinPacket{}
+	err = c.readPacket(hndFin)
 	if err != nil {
 		return err
 	}
 
-	hndFin := handshakeFinFromBuf(pkt)
+	// TODO remove padding from payload
 	payload, err := hs.ReadMessage(nil, hndFin)
 	if err != nil {
 		return err

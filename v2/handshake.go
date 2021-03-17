@@ -30,6 +30,8 @@ type readableHandshakeMessage interface {
 	ReadEncryptedIdentity() ([]byte, error)
 	ReadPayload() ([]byte, error)
 	Length() int
+	Deserialize([]byte) error
+	PacketType() packetType
 }
 
 // writeableHandshakeMessage takes data from the HandshakeState to marshal it to a custom format.
@@ -37,6 +39,7 @@ type writeableHandshakeMessage interface {
 	WriteEPublic(e [32]byte)
 	WriteEncryptedIdentity(s []byte)
 	WriteEncryptedPayload(p []byte)
+	Serialize() []byte
 }
 
 type cipherState struct {
@@ -254,7 +257,7 @@ func writeMessageS(s *handshakeState, msg writeableHandshakeMessage) error {
 		return fmt.Errorf("Unable to marshal local identity: %w", err)
 	}
 	var encryptedSPublic []byte
-	encryptedSPublic = s.symmState.EncryptAndHash(encryptedSPublic, idBytes)
+	encryptedSPublic = s.symmState.EncryptAndHash(encryptedSPublic, padPrefixPayload(idBytes))
 	msg.WriteEncryptedIdentity(encryptedSPublic)
 
 	return nil
@@ -341,7 +344,7 @@ func readMessageS(s *handshakeState, msg readableHandshakeMessage) error {
 	if err != nil {
 		return fmt.Errorf("Failed to decrypt remote identity: %w", err)
 	}
-	smCrt, err := smolcert.ParseBuf(decryptedRawIdentity)
+	smCrt, err := smolcert.ParseBuf(unpadPayload(decryptedRawIdentity))
 	if err != nil {
 		return fmt.Errorf("Failed to parse remote identity: %w", err)
 	}
@@ -466,11 +469,10 @@ func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []b
 		return err
 	}
 	s.shouldWrite = false
-	if len(payload) > 0 {
-		var encryptedPayload []byte
-		encryptedPayload = s.symmState.EncryptAndHash(encryptedPayload, payload)
-		out.WriteEncryptedPayload(encryptedPayload)
-	}
+	paddedPayload := padPrefixPayload(payload)
+	var encryptedPayload []byte
+	encryptedPayload = s.symmState.EncryptAndHash(encryptedPayload, paddedPayload)
+	out.WriteEncryptedPayload(encryptedPayload)
 
 	if s.writeMsgIdx == len(s.writeOperations) {
 		s.cs1, s.cs2 = s.symmState.Split()
@@ -497,12 +499,12 @@ func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessag
 	if err != nil {
 		return nil, fmt.Errorf("Failed to read payload from received handshake packet: %w", err)
 	}
-	if len(msgBytes) > 0 {
-		out, err = s.symmState.DecryptAndHash(out, msgBytes)
-		if err != nil {
-			s.symmState.Rollback()
-			return nil, fmt.Errorf("Failed to decrypt payload: %w", err)
-		}
+
+	out, err = s.symmState.DecryptAndHash(out, msgBytes)
+	out = unpadPayload(out)
+	if err != nil {
+		s.symmState.Rollback()
+		return nil, fmt.Errorf("Failed to decrypt payload: %w", err)
 	}
 
 	s.shouldWrite = true
