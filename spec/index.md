@@ -9,7 +9,8 @@ it explicitly in the packet. Packet loss should disrupt the connection and inval
 requiring a new handshake (0-RTT handshakes are planned, but not specified).
 
 `PacketLength` is always the amount of bytes to read from the connection. This means that
-`PacketLength` does not include the two bytes describing the length of packet.
+`PacketLength` does not include the two bytes describing the length of packet or preceding bytes
+like the packet type.
 
 ## HandshakeInit
 
