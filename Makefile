@@ -24,4 +24,4 @@ benchmark:
 	$(GO_BUILD_ENV_TEST_VARS) go test -timeout 60s -v -benchmem -bench=.
 
 test:
-	$(GO_TEST)
+	$(GO_TEST) ./v2
