@@ -8,11 +8,11 @@ import (
 )
 
 func (c *Conn) Write(buf []byte) (n int, err error) {
-	panic("Not implemented yet")
+	return c.hcOut.write(buf)
 }
 
-func (c *Conn) Read() (n int, err error) {
-	panic("Not implemented yet")
+func (c *Conn) Read(buf []byte) (n int, err error) {
+	return c.hcIn.read(buf)
 }
 
 func (c *Conn) Close() error {

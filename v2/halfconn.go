@@ -18,6 +18,7 @@ func (h *halfConn) write(buf []byte) (n int, err error) {
 	if len(buf) == 0 {
 		return 0, nil
 	}
+	origLen := len(buf)
 	// TODO check may length
 	paddedBuf := padPrefixPayload(buf)
 	encBuf := h.cs.Encrypt(nil, nil, paddedBuf)
@@ -29,13 +30,13 @@ func (h *halfConn) write(buf []byte) (n int, err error) {
 		return 0, err
 	}
 	for n < length {
-		n1, err := h.conn.netConn.Write(buf[:n])
+		n1, err := h.conn.netConn.Write(encBuf[n:])
 		if err != nil {
 			return 0, err
 		}
 		n = n + n1
 	}
-	return
+	return origLen, nil
 }
 
 func (h *halfConn) read(buf []byte) (n int, err error) {
@@ -50,6 +51,7 @@ func (h *halfConn) read(buf []byte) (n int, err error) {
 		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", maxPayloadLength, len(buf))
 	}
 	readBuf := make([]byte, expectedLength)
+	n = 0
 	for n < int(expectedLength) {
 		n1, err := h.conn.netConn.Read(readBuf[n:])
 		if err != nil {

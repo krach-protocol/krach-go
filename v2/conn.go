@@ -230,7 +230,6 @@ func (c *Conn) runClientHandshake() error {
 		return err
 	}
 
-	fmt.Println("Sending handshake fin message")
 	if _, err := c.writePacket(handshakeFinMsg); err != nil {
 		return err
 	}
