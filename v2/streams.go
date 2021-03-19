@@ -1,3 +1,5 @@
+// +build multiplexing
+
 package krach
 
 import (
