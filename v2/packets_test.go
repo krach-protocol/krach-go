@@ -51,7 +51,7 @@ func TestPadding(t *testing.T) {
 		assert.EqualValues(t, 0, len(paddedPayload)%16, "[case %d] Padded payload is not divisible by 16", i)
 
 		buf := padPrefixPayload(c.payload)
-		assert.Len(t, buf, len(c.payload)+1+int(paddedBytes))
+		assert.True(t, len(buf)%16 == 0, "buffer is not correctly padded with a length of %d bytes", len(buf))
 
 		unpaddedBuf := unpadPayload(buf)
 		assert.Len(t, unpaddedBuf, len(c.payload))

@@ -272,11 +272,14 @@ func padPayload(buf []byte) ([]byte, uint8) {
 }
 
 func padPrefixPayload(buf []byte) []byte {
+	// FIXME padding prefix byte is not taken into account here
 	if len(buf) == 0 {
 		return buf
 	}
-	paddedBuf, padLen := padPayload(buf)
-	return append([]byte{byte(padLen)}, paddedBuf...)
+	prefixedBuf := append([]byte{byte(0x00)}, buf...)
+	paddedBuf, padLen := padPayload(prefixedBuf)
+	paddedBuf[0] = padLen
+	return paddedBuf
 }
 
 func unpadPayload(buf []byte) []byte {
