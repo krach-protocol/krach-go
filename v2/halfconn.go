@@ -19,7 +19,7 @@ func (h *halfConn) write(buf []byte) (n int, err error) {
 		return 0, nil
 	}
 	origLen := len(buf)
-	// TODO check may length
+	// TODO check max length
 	paddedBuf := padPrefixPayload(buf)
 	encBuf := h.cs.Encrypt(nil, nil, paddedBuf)
 	length := len(encBuf)
@@ -46,9 +46,9 @@ func (h *halfConn) read(buf []byte) (n int, err error) {
 		return 0, err
 	}
 	expectedLength := endianess.Uint16(lengthBuf)
-	maxPayloadLength := int(expectedLength) - macSize - 1 /*pad length field*/
-	if len(buf) < maxPayloadLength {
-		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", maxPayloadLength, len(buf))
+	minPayloadLength := int(expectedLength) - macSize - 15 /*max padding bytes */ - 1 /*pad length field*/
+	if len(buf) < minPayloadLength {
+		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", minPayloadLength, len(buf))
 	}
 	readBuf := make([]byte, expectedLength)
 	n = 0
