@@ -137,6 +137,7 @@ func BenchmarkNonMultiplexedConnection(b *testing.B) {
 			n, err := serverConn.Read(buf)
 			assert.NoError(b, err)
 			assert.EqualValues(b, payloadLen, n)
+			assert.EqualValues(b, randPayload, buf[:n])
 		}
 	}()
 	wg.Wait()
