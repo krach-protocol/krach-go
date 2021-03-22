@@ -1,10 +1,10 @@
 package krach
 
 import (
-	"encoding/binary"
+	_ "encoding/binary"
+	"errors"
 	"fmt"
-
-	"github.com/pkg/errors"
+	_ "fmt"
 )
 
 // packetType represents the type of a packet as unsigned 8 bit integer
@@ -37,261 +37,223 @@ func (f frameCommand) Byte() byte {
 	return byte(f)
 }
 
-type packet struct {
-	Buf []byte
-}
-
-func packetFromBuf(buf []byte) *packet {
-	return &packet{
-		Buf: buf,
-	}
-}
-
-func (p *packet) Length() int {
-	return len(p.Buf)
-}
-
-func (p *packet) Version() byte {
-	return p.Buf[0]
-}
-
-func (p *packet) Type() packetType {
-	return packetType(p.Buf[1])
-}
-
 type handshakeInitPacket struct {
-	packet
+	ephemeralKey [32]byte
 }
 
-func handshakeInitFromBuf(b []byte) *handshakeInitPacket {
-	return &handshakeInitPacket{
-		packet: packet{
-			Buf: b,
-		},
-	}
+func (h *handshakeInitPacket) PacketType() packetType {
+	return packetTypeHandshakeInit
 }
 
-func (h *handshakeInitPacket) ReadEPublic() (pubKey [32]byte, err error) {
-	copy(pubKey[:], h.Buf[2:34])
-	return
+func (h *handshakeInitPacket) Length() int {
+	return 32
+}
+
+func (h *handshakeInitPacket) Type() packetType {
+	return packetTypeHandshakeInit
+}
+
+func (h *handshakeInitPacket) ReadEPublic() ([32]byte, error) {
+	return h.ephemeralKey, nil
 }
 
 func (h *handshakeInitPacket) ReadEncryptedIdentity() ([]byte, error) {
-	panic("HandshakeInit should not contain a static identity")
+	panic("Handshake Init must not contain an encrypted identitiy")
 }
 
 func (h *handshakeInitPacket) ReadPayload() ([]byte, error) {
-	// The initial handshale should never contain sensitive information
-	return []byte{}, nil
-}
-func (h *handshakeInitPacket) EphemeralPublicKey() [32]byte {
-	var key [32]byte
-	// TODO, see if this is necessary or if we can cast the subslice to [32]byte
-	copy(key[:], h.Buf[2:(2+32)])
-	return key
+	// panic("Handshake init must not have a generic payload")
+	return nil, nil
 }
 
 func (h *handshakeInitPacket) WriteEPublic(e [32]byte) {
-	copy(h.Buf[2:], e[:])
+	h.ephemeralKey = e
 }
 
 func (h *handshakeInitPacket) WriteEncryptedIdentity(s []byte) {
-	panic(errors.New("HandshakeInitPacket should not contain the encrypted identity"))
+	panic("Handshake Init packets can't contain an encrypted identity")
 }
 
 func (h *handshakeInitPacket) WriteEncryptedPayload(p []byte) {
-	h.Buf = append(h.Buf, p...)
+	// panic("Handshake Init packets can't contain a payload")
+	// Ignore, we don't want to add payloads to init packets
 }
 
-func composeHandshakeInitPacket() *handshakeInitPacket {
-	// 1 byte for the version, 1 for the packet type, 32 for the ephemeral public key
-	buf := make([]byte, 34, 34)
+func (h *handshakeInitPacket) Serialize() []byte {
+	len := 1 /*Version*/ + 1 /*Handshake Type*/ + 2 /*Packet length*/ + 32 /*key length*/
+	buf := make([]byte, len)
 	buf[0] = KrachVersion
 	buf[1] = packetTypeHandshakeInit.Byte()
-	return &handshakeInitPacket{
-		packet: packet{
-			Buf: buf,
-		},
+	endianess.PutUint16(buf[2:4], 32 /*key length*/) // Packet length only counts bytes following the packet length
+	copy(buf[4:], h.ephemeralKey[:])
+	return buf
+}
+
+func (h *handshakeInitPacket) Deserialize(buf []byte) error {
+	if len(buf) != 32 {
+		return errors.New("Invalid length of handshake init packet. Expected 32 bytes")
 	}
+	var ek [32]byte
+	copy(ek[:], buf)
+	h.ephemeralKey = ek
+	return nil
 }
 
 type handshakeResponsePacket struct {
-	packet
+	ephemeralKey      [32]byte
+	smolCertEncrypted []byte
+	payloadEncrypted  []byte
+
+	receivedLength int
 }
 
-func handshakeResponseFromBuf(buf []byte) *handshakeResponsePacket {
-	return &handshakeResponsePacket{
-		packet: packet{
-			Buf: buf,
-		},
-	}
+func (h *handshakeResponsePacket) PacketType() packetType {
+	return packetTypeHandshakeInitResponse
 }
 
-func composeHandshakeResponse() *handshakeResponsePacket {
-	buf := make([]byte, 34)
-	buf[0] = KrachVersion
-	buf[1] = packetTypeHandshakeInitResponse.Byte()
-	return &handshakeResponsePacket{
-		packet: packet{
-			Buf: buf,
-		},
-	}
+func (h *handshakeResponsePacket) Length() int {
+	return h.receivedLength
 }
 
-func (h *handshakeResponsePacket) WriteEPublic(e [32]byte) {
-	if len(h.Buf) < 34 {
-		buf := make([]byte, 34)
-		copy(buf, h.Buf)
-		h.Buf = buf
-	}
-	copy(h.Buf[2:], e[:])
-}
-
-func (h *handshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
-	expectedPacketLen := 34 + 2 + len(s)
-	if len(h.Buf) < expectedPacketLen {
-		buf := make([]byte, expectedPacketLen)
-		copy(buf, h.Buf)
-		h.Buf = buf
-	}
-	binary.LittleEndian.PutUint16(h.Buf[34:], uint16(len(s)))
-	copy(h.Buf[36:], s)
-}
-
-func (h *handshakeResponsePacket) WriteEncryptedPayload(p []byte) {
-	idLen := binary.LittleEndian.Uint16(h.Buf[34:])
-	expectedPacketLen := 34 + 2 + int(idLen) + 2 + len(p)
-	if len(h.Buf) < expectedPacketLen {
-		buf := make([]byte, expectedPacketLen)
-		copy(buf, h.Buf)
-		h.Buf = buf
-	}
-	binary.LittleEndian.PutUint16(h.Buf[36+idLen:], uint16(len(p)))
-	copy(h.Buf[38+idLen:], p)
-}
-
-func (h *handshakeResponsePacket) ReadEPublic() (pubKey [32]byte, err error) {
-	if len(h.Buf) < 34 {
-		return pubKey, fmt.Errorf("HandshakeResponse packet is too small. Expected at least 38 bytes, got %d", len(h.Buf))
-	}
-	copy(pubKey[:], h.Buf[2:34])
-	return pubKey, nil
+func (h *handshakeResponsePacket) ReadEPublic() ([32]byte, error) {
+	return h.ephemeralKey, nil
 }
 
 func (h *handshakeResponsePacket) ReadEncryptedIdentity() ([]byte, error) {
-	certLen := binary.LittleEndian.Uint16(h.Buf[34:])
-	if len(h.Buf) < int(34+2+certLen) {
-		return nil, fmt.Errorf("Invalid certificate length specifier. Bytes in packet are shorter than expected Packet length")
-	}
-	return h.Buf[36 : 36+certLen], nil
+	return h.smolCertEncrypted, nil
 }
 
 func (h *handshakeResponsePacket) ReadPayload() ([]byte, error) {
-	certLen := binary.LittleEndian.Uint16(h.Buf[34:])
-	payloadLenOffset := 34 + 2 + certLen
-	// Check if we have a payload at all
-	if len(h.Buf) < int(payloadLenOffset) {
-		// Seems not payload is specified
+	return h.payloadEncrypted, nil
+}
 
-		return []byte{}, nil
-	}
+func (h *handshakeResponsePacket) WriteEPublic(e [32]byte) {
+	h.ephemeralKey = e
+}
 
-	if len(h.Buf) < int(payloadLenOffset+2) {
-		return nil, fmt.Errorf("Payload size is set, but no payload available")
-	}
+func (h *handshakeResponsePacket) WriteEncryptedIdentity(s []byte) {
+	h.smolCertEncrypted = s
+}
 
-	payloadLen := binary.LittleEndian.Uint16(h.Buf[payloadLenOffset:])
-	if len(h.Buf) != int(payloadLenOffset+payloadLen+2) {
-		return nil, fmt.Errorf("Handshake response packet has invalid payload length field")
+func (h *handshakeResponsePacket) WriteEncryptedPayload(p []byte) {
+	h.payloadEncrypted = p
+}
+
+func (h *handshakeResponsePacket) Serialize() []byte {
+	length := 1 /*Packet type*/ + 2 /*Packet length*/ + 32 /*ephemeral key length*/ +
+		2 /*id length*/ + len(h.smolCertEncrypted) + 2 /*payload length*/ + len(h.payloadEncrypted)
+
+	buf := make([]byte, length)
+	buf[0] = packetTypeHandshakeInitResponse.Byte()
+	endianess.PutUint16(buf[1:3], uint16(length-3))
+	copy(buf[3:35], h.ephemeralKey[:])
+	offset := writeLengthPrefixed(buf[35:], h.smolCertEncrypted) + 35 /* manual offset from ephemeral key */
+	writeLengthPrefixed(buf[offset:], h.payloadEncrypted)
+	return buf
+}
+
+func (h *handshakeResponsePacket) Deserialize(buf []byte) (err error) {
+	if len(buf) < 84 /*Minimal possible length*/ {
+		return fmt.Errorf("Invalid packet length for HandshakeResponse packet. Got only %d bytes", len(buf))
 	}
-	return h.Buf[payloadLenOffset+2:], nil
+	h.receivedLength = len(buf)
+	copy(h.ephemeralKey[:], buf[:32])
+	offset := 32
+	var nextOffset int
+	h.smolCertEncrypted, nextOffset, err = readLengthPrefixed(buf[offset:])
+	if err != nil {
+		return err
+	}
+	offset = offset + nextOffset
+	h.payloadEncrypted, nextOffset, err = readLengthPrefixed(buf[offset:])
+	return
 }
 
 type handshakeFinPacket struct {
-	packet
+	smolCertEncrypted []byte
+	payloadEncrypted  []byte
+	receivedLength    int
 }
 
-func composeHandshakeFinPacket() *handshakeFinPacket {
-	buf := make([]byte, 6)
-	buf[0] = KrachVersion
-	buf[1] = packetTypeHandshakeFin.Byte()
-
-	return &handshakeFinPacket{
-		packet: packet{
-			Buf: buf,
-		},
-	}
+func (h *handshakeFinPacket) PacketType() packetType {
+	return packetTypeHandshakeFin
 }
 
-func handshakeFinFromBuf(b []byte) *handshakeFinPacket {
-	return &handshakeFinPacket{
-		packet: packet{
-			Buf: b,
-		},
-	}
+func (h *handshakeFinPacket) Length() int {
+	return h.receivedLength
 }
 
 func (h *handshakeFinPacket) ReadEPublic() ([32]byte, error) {
-	panic("Handshake Fin should not contain an ephemeral public key")
+	panic("HandshakeFin packets do not contain ephemeral public keys")
 }
 
 func (h *handshakeFinPacket) ReadEncryptedIdentity() ([]byte, error) {
-	if len(h.Buf) < 15 {
-		return nil, fmt.Errorf("HandshakeFinPacket is too short")
-	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[2:])
-	if len(h.Buf) < int(4+idLen) {
-		return nil, fmt.Errorf("HandshakeInit has invalid ID length field")
-	}
-	return h.Buf[4 : idLen+4], nil
+	return h.smolCertEncrypted, nil
 }
 
 func (h *handshakeFinPacket) ReadPayload() ([]byte, error) {
-	if len(h.Buf) < 15 {
-		// Fifteen is an arbitrary number, which is simply larger than 12, because the packet including the
-		// the identity length field is 12 bytes. The identity can't be zero bytes
-		return nil, fmt.Errorf("HandshakeFinPacket is too short")
-	}
-	idLen := binary.LittleEndian.Uint16(h.Buf[2:4])
-	if len(h.Buf) == int(4+idLen) {
-		// We do not have any payload
-		return []byte{}, nil
-	}
-
-	payloadLen := binary.LittleEndian.Uint16(h.Buf[4+idLen:])
-	if len(h.Buf) != int(4+idLen+2+payloadLen) {
-		return nil, fmt.Errorf("HandshakeFinPacket specified invalid payload length")
-	}
-	return h.Buf[(4 + idLen + 2):], nil
-}
-
-func (h *handshakeFinPacket) WriteEncryptedPayload(p []byte) {
-	idLen := int(binary.LittleEndian.Uint16(h.Buf[2:]))
-	expectedLen := idLen + 4 + 2 + len(p)
-	if len(h.Buf) < expectedLen {
-		buf := make([]byte, expectedLen)
-		copy(buf, h.Buf)
-		h.Buf = buf
-	}
-
-	binary.LittleEndian.PutUint16(h.Buf[4+idLen:], uint16(len(p)))
-	copy(h.Buf[4+idLen+2:], p)
+	return h.payloadEncrypted, nil
 }
 
 func (h *handshakeFinPacket) WriteEPublic(e [32]byte) {
-	panic("The handshake fin packet should not contain an ephemeral public key")
+	panic("HandshakeFin packets can't contain ephemeral public keys")
 }
 
 func (h *handshakeFinPacket) WriteEncryptedIdentity(s []byte) {
-	idLen := len(s)
-	if len(h.Buf) < 4+idLen {
-		// Resize packet buf if necessary
-		buf := make([]byte, 4+idLen)
-		copy(buf, h.Buf)
-		h.Buf = buf
+	h.smolCertEncrypted = s
+}
+
+func (h *handshakeFinPacket) WriteEncryptedPayload(p []byte) {
+	h.payloadEncrypted = p
+}
+
+func (h *handshakeFinPacket) Serialize() []byte {
+	length := 1 /*Packet type*/ + 2 /*Packet length*/ +
+		2 /*id length*/ + len(h.smolCertEncrypted) + 2 /*payload length*/ + len(h.payloadEncrypted)
+	buf := make([]byte, length)
+	buf[0] = packetTypeHandshakeFin.Byte()
+	endianess.PutUint16(buf[1:3], uint16(length-3))
+	offset := 3
+	nextOffset := writeLengthPrefixed(buf[offset:], h.smolCertEncrypted)
+	offset = offset + nextOffset
+	writeLengthPrefixed(buf[offset:], h.payloadEncrypted)
+	return buf
+}
+
+func (h *handshakeFinPacket) Deserialize(buf []byte) (err error) {
+	if len(buf) < 52 {
+		return fmt.Errorf("Received buffer is too small to contain a Handshake Fin packet. Received only %d bytes", len(buf))
 	}
-	binary.LittleEndian.PutUint16(h.Buf[2:], uint16(idLen))
-	copy(h.Buf[4:], s)
+	h.receivedLength = len(buf)
+	offset := 0
+	h.smolCertEncrypted, offset, err = readLengthPrefixed(buf)
+	if err != nil {
+		return err
+	}
+	h.payloadEncrypted, _, err = readLengthPrefixed(buf[offset:])
+	return err
+}
+
+// readLengthPrefixed reads a length prefixed payload from the given buffer. It return the read payload,
+// the offset after the payload, which was just read and if necessary an error
+func readLengthPrefixed(buf []byte) ([]byte, int, error) {
+	if len(buf) < 2 {
+		return nil, 0, errors.New("Buffer too small to decode length prefixed value")
+	}
+	length := endianess.Uint16(buf[:2])
+	if len(buf) < int(length+2) {
+		return nil, 0, errors.New("Got invalid length. Prefixed length is smaller than remaining buffer")
+	}
+	return buf[2 : length+2], int(length + 2), nil
+}
+
+// writeLengthPrefixed writes the payload into the given buffer by prefixing the payload with an uint16
+// representation of the payloads length. Therefore the given buffer must at least have a size of
+// payload length + 2. This method return the offset in the given buffer, after the payload
+func writeLengthPrefixed(buf []byte, payload []byte) (offset int) {
+	endianess.PutUint16(buf[:2], uint16(len(payload)))
+	copy(buf[2:], payload)
+	return 2 + len(payload)
 }
 
 func padPayload(buf []byte) ([]byte, uint8) {
@@ -307,4 +269,23 @@ func padPayload(buf []byte) ([]byte, uint8) {
 		buf = newBuf
 	}
 	return buf[:origDataLen+bytesToPad], uint8(bytesToPad)
+}
+
+func padPrefixPayload(buf []byte) []byte {
+	// FIXME padding prefix byte is not taken into account here
+	if len(buf) == 0 {
+		return buf
+	}
+	prefixedBuf := append([]byte{byte(0x00)}, buf...)
+	paddedBuf, padLen := padPayload(prefixedBuf)
+	paddedBuf[0] = padLen
+	return paddedBuf
+}
+
+func unpadPayload(buf []byte) []byte {
+	if len(buf) < 2 {
+		return buf
+	}
+	paddedBytes := int(buf[0])
+	return buf[1 : len(buf)-(paddedBytes)]
 }

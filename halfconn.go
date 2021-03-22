@@ -1,134 +1,69 @@
 package krach
 
-import (
-	"encoding/binary"
-	"sync"
+import "fmt"
 
-	"math"
-
-	"fmt"
-
-	"github.com/pkg/errors"
-)
-
-//halfConn represents inbound or outbound connection state with its own cipher
 type halfConn struct {
-	sync.Mutex
-	cs      *cipherState
-	err     error
-	bfree   *buffer // list of free blocks
-	padding uint16
+	cs   *cipherState
+	conn *Conn
 }
 
-const (
-	uint16Size  = 2  // uint16 takes 2 bytes
-	macSize     = 16 // Poly1305 add 16 byte MACs
-	paddingSize = 1
-)
-
-func (h *halfConn) encryptIfNeeded(block *buffer) []byte {
-
-	if h.cs != nil {
-
-		payloadSize := len(block.data) - uint16Size + macSize
-		if payloadSize > math.MaxUint16 {
-			panic("data is too big to be sent")
-		}
-
-		//binary.BigEndian.PutUint16(block.data, uint16(payloadSize))
-		block.data = h.cs.Encrypt(block.data[:uint16Size], block.data[:uint16Size], block.data[uint16Size:])
-
-		return block.data
+func newHalfConn(conn *Conn, cs *cipherState) *halfConn {
+	return &halfConn{
+		conn: conn,
+		cs:   cs,
 	}
-
-	if len(block.data) > MaxPayloadSize-uint16Size {
-		panic("data is too big to be sent")
-	}
-
-	// Not necessary, the length of data is set in conn.go
-	//binary.BigEndian.PutUint16(block.data, uint16(len(block.data)-uint16Size))
-
-	return block.data
 }
 
-// decryptIfNeeded checks and strips the mac and decrypts the data in b.
-// Returns error if parsing failed
-
-func (h *halfConn) decryptIfNeeded(b *buffer) (off, length int, err error) {
-
-	// pull out payload
-
-	payload := b.data[uint16Size:]
-
-	packetLen := binary.BigEndian.Uint16(b.data)
-	if int(packetLen) != len(payload) { //this is supposed to be checked before method call
-		panic("invalid payload size")
+func (h *halfConn) write(buf []byte) (n int, err error) {
+	if len(buf) == 0 {
+		return 0, nil
 	}
-
-	if h.cs != nil {
-		payload, err = h.cs.Decrypt(payload[:0], b.data[:uint16Size], payload)
+	origLen := len(buf)
+	// TODO check max length
+	paddedBuf := padPrefixPayload(buf)
+	encBuf := h.cs.Encrypt(nil, nil, paddedBuf)
+	length := len(encBuf)
+	lengthBuf := make([]byte, 2)
+	endianess.PutUint16(lengthBuf, uint16(length))
+	_, err = h.conn.netConn.Write(lengthBuf)
+	if err != nil {
+		return 0, err
+	}
+	for n < length {
+		n1, err := h.conn.netConn.Write(encBuf[n:])
 		if err != nil {
-			return 0, 0, fmt.Errorf("Failed to decrypt received payload in halfconn: %w", err)
+			return 0, err
 		}
-		if len(payload) < 3 {
-			return 0, 0, errors.New("too small packet data")
+		n = n + n1
+	}
+	return origLen, nil
+}
+
+func (h *halfConn) read(buf []byte) (n int, err error) {
+	lengthBuf := make([]byte, 2)
+	n, err = h.conn.netConn.Read(lengthBuf)
+	if err != nil {
+		return 0, err
+	}
+	expectedLength := endianess.Uint16(lengthBuf)
+	minPayloadLength := int(expectedLength) - macSize - 15 /*max padding bytes */ - 1 /*pad length field*/
+	if len(buf) < minPayloadLength {
+		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", minPayloadLength, len(buf))
+	}
+	readBuf := make([]byte, expectedLength)
+	n = 0
+	for n < int(expectedLength) {
+		n1, err := h.conn.netConn.Read(readBuf[n:])
+		if err != nil {
+			return 0, err
 		}
-
-		//dataLen := binary.BigEndian.Uint16(payload)
-		//fmt.Println("decrypt len", dataLen)
-		paddedDataLen := len(payload)
-		paddedLen := int(payload[0])
-		dataLen := paddedDataLen - paddedLen
-		payload = payload[:dataLen]
-
-		if int(packetLen-macSize) != paddedDataLen {
-			return 0, 0, fmt.Errorf("invalid packet data: %d %d", paddedDataLen, len(payload))
-		}
-		b.resize(3 + int(dataLen))
-		return 3, int(dataLen), nil
+		n = n + n1
 	}
-
-	return uint16Size, len(payload), nil
-}
-
-func (h *halfConn) setErrorLocked(err error) error {
-	h.err = err
-	return err
-}
-
-// newBlock allocates a new packet, from hc's free list if possible.
-func (h *halfConn) newBlock() *buffer {
-	b := h.bfree
-	if b == nil {
-		return new(buffer)
-
+	decryptedBuf, err := h.cs.Decrypt(nil, nil, readBuf)
+	if err != nil {
+		return 0, err
 	}
-	h.bfree = b.link
-	b.link = nil
-	b.resize(0)
-	return b
-}
-
-// freeBlock returns a packet to hc's free list.
-// The protocol is such that each side only has a packet or two on
-// its free list at a time, so there's no need to worry about
-// trimming the list, etc.
-func (h *halfConn) freeBlock(b *buffer) {
-	b.link = h.bfree
-	h.bfree = b
-
-}
-
-// splitBlock splits a packet after the first n bytes,
-// returning a packet with those n bytes and a
-// packet with the remainder.  the latter may be nil.
-func (h *halfConn) splitBlock(b *buffer, n int) (*buffer, *buffer) {
-	if len(b.data) <= n {
-		return b, nil
-	}
-	bb := h.newBlock()
-	bb.resize(len(b.data) - n)
-	copy(bb.data, b.data[n:])
-	b.data = b.data[0:n]
-	return b, bb
+	padBytes := decryptedBuf[0]
+	copy(buf, decryptedBuf[1:len(decryptedBuf)-int(padBytes)])
+	return len(decryptedBuf) - 1 - int(padBytes), nil
 }

@@ -1,73 +1,36 @@
 package krach
 
 import (
-	"math/rand"
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPacketTypes(t *testing.T) {
-	pktBuf := make([]byte, 256)
-	rand.Read(pktBuf)
-	pktBuf[0] = KrachVersion
-	pktBuf[1] = packetTypeHandshakeInit.Byte()
+func TestWriteLengthPrefixed(t *testing.T) {
+	payload1 := []byte{0x01, 0x01, 0x01, 0x01}
+	payload2 := []byte{0x02, 0x02, 0x02, 0x02, 0x02}
 
-	pkt := packetFromBuf(pktBuf)
-	assert.Equal(t, pkt.Type(), packetTypeHandshakeInit)
-
-	handshakeInit := handshakeInitPacket{*pkt}
-	handshakeInit.Type()
+	buf := make([]byte, len(payload1)+len(payload2)+4)
+	offset := writeLengthPrefixed(buf, payload1)
+	writeLengthPrefixed(buf[offset:], payload2)
+	assert.EqualValues(t, len(payload1), endianess.Uint16(buf[:2]))
+	assert.EqualValues(t, 0x01, buf[3])
+	assert.EqualValues(t, len(payload2), endianess.Uint16(buf[6:8]))
+	assert.EqualValues(t, 0x02, buf[8])
+	assert.EqualValues(t, 0x02, buf[len(buf)-1])
 }
 
-func TestHandshakeResponsePacket(t *testing.T) {
-	handshakeResponse := composeHandshakeResponse()
+func TestReadLengthPrefixed(t *testing.T) {
+	payload1 := []byte{0x01, 0x01, 0x01, 0x01}
+	buf := make([]byte, len(payload1)+2)
+	writeLengthPrefixed(buf, payload1)
 
-	var randomBytes [32]byte
-	rand.Read(randomBytes[:])
-	handshakeResponse.WriteEPublic(randomBytes)
-	randomCertBytes := make([]byte, 139)
-	rand.Read(randomCertBytes)
-	handshakeResponse.WriteEncryptedIdentity(randomCertBytes)
-
-	randomPayload := make([]byte, 92)
-	rand.Read(randomPayload)
-	handshakeResponse.WriteEncryptedPayload(randomPayload)
-
-	assert.Equal(t, KrachVersion, handshakeResponse.Version())
-	assert.Equal(t, packetTypeHandshakeInitResponse, handshakeResponse.Type())
-
-	pubKeyBytes, err := handshakeResponse.ReadEPublic()
+	payload, _, err := readLengthPrefixed(buf)
 	require.NoError(t, err)
-	assert.EqualValues(t, randomBytes, pubKeyBytes)
-
-	certBytes, err := handshakeResponse.ReadEncryptedIdentity()
-	require.NoError(t, err)
-	assert.EqualValues(t, randomCertBytes, certBytes)
-
-	payload, err := handshakeResponse.ReadPayload()
-	require.NoError(t, err)
-	assert.EqualValues(t, randomPayload, payload)
-}
-
-func TestHandshakeFinPacket(t *testing.T) {
-	handshakeFin := composeHandshakeFinPacket()
-	randomCertBytes := make([]byte, 127)
-	rand.Read(randomCertBytes)
-	randomPayloadBytes := make([]byte, 95)
-	rand.Read(randomPayloadBytes)
-
-	handshakeFin.WriteEncryptedIdentity(randomCertBytes)
-	handshakeFin.WriteEncryptedPayload(randomPayloadBytes)
-
-	certBytes, err := handshakeFin.ReadEncryptedIdentity()
-	require.NoError(t, err)
-	assert.EqualValues(t, randomCertBytes, certBytes)
-
-	payloadBytes, err := handshakeFin.ReadPayload()
-	require.NoError(t, err)
-	assert.EqualValues(t, randomPayloadBytes, payloadBytes)
+	assert.EqualValues(t, payload1, payload)
 }
 
 func TestPadding(t *testing.T) {
@@ -86,5 +49,54 @@ func TestPadding(t *testing.T) {
 		paddedPayload, paddedBytes := padPayload(c.payload)
 		assert.EqualValues(t, c.expectedPaddedBytes, paddedBytes, "[case %d] Padded bytes do not match", i)
 		assert.EqualValues(t, 0, len(paddedPayload)%16, "[case %d] Padded payload is not divisible by 16", i)
+
+		buf := padPrefixPayload(c.payload)
+		assert.True(t, len(buf)%16 == 0, "buffer is not correctly padded with a length of %d bytes", len(buf))
+
+		unpaddedBuf := unpadPayload(buf)
+		assert.Len(t, unpaddedBuf, len(c.payload))
+		assert.EqualValues(t, c.payload, unpaddedBuf)
 	}
+}
+
+func TestHandshakeInitFormat(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	var ek [32]byte
+	copy(ek[:], pub)
+	hndInit := &handshakeInitPacket{
+		ephemeralKey: ek,
+	}
+
+	buf := hndInit.Serialize()
+
+	hndInit2 := &handshakeInitPacket{}
+	err = hndInit2.Deserialize(buf[4:])
+	require.NoError(t, err)
+	assert.EqualValues(t, hndInit.ephemeralKey, hndInit2.ephemeralKey)
+}
+
+func TestHandshakeResponseFormat(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	var ek [32]byte
+	copy(ek[:], pub)
+
+	hndResponse := &handshakeResponsePacket{}
+	hndResponse.WriteEPublic(ek)
+
+	fakeSmolCert := []byte("Fake smolcert with enough length, so lentgh checks don't fail despite this bein not valid data")
+	fakePayload := []byte("Fake payload")
+	hndResponse.WriteEncryptedIdentity(fakeSmolCert)
+	hndResponse.WriteEncryptedPayload(fakePayload)
+	buf := hndResponse.Serialize()
+
+	hndRsp := &handshakeResponsePacket{}
+	err = hndRsp.Deserialize(buf[3:])
+	require.NoError(t, err)
+
+	assert.EqualValues(t, ek, hndRsp.ephemeralKey)
+	assert.Len(t, hndRsp.smolCertEncrypted, len(fakeSmolCert))
+	assert.EqualValues(t, fakeSmolCert, hndRsp.smolCertEncrypted)
+	assert.EqualValues(t, fakePayload, hndRsp.payloadEncrypted)
 }

@@ -1,9 +1,13 @@
 package krach
 
 import (
-	"net"
+	"encoding/binary"
+)
 
-	"github.com/pkg/errors"
+const (
+	uint16Size      = 2
+	macSize         = 16
+	frameHeaderSize = 3 /*stream id, stream command, padding size */
 )
 
 const (
@@ -11,62 +15,6 @@ const (
 	KrachVersion byte = 0x01
 )
 
-const errPrefix = "krach: "
-
 var (
-	// A timeout error which should be similar enough to the timeout error used in the net package.
-	timeoutError = &net.OpError{Err: errors.New("i/o timeout")}
+	endianess = binary.LittleEndian
 )
-
-// A listener implements a network listener (net.Listener) for TLS connections.
-type listener struct {
-	net.Listener
-	certPool CertPool
-	config   *ConnectionConfig
-}
-
-// Accept waits for and returns the next incoming connection.
-// The returned connection is of type *Conn.
-func (l *listener) Accept() (net.Conn, error) {
-	c, err := l.Listener.Accept()
-	if err != nil {
-		return nil, err
-	}
-
-	return newConn(*l.config, c, l.certPool), nil
-}
-
-// Listen creates a TLS listener accepting connections on the
-// given network address using net.Listen.
-func Listen(laddr string, config *ConnectionConfig, certPool CertPool) (net.Listener, error) {
-
-	l, err := net.Listen("tcp", laddr)
-	if err != nil {
-		return nil, err
-	}
-
-	if config.MaxFrameLength == 0 {
-		config.MaxFrameLength = defaultMaxFrameSize
-	}
-
-	return &listener{
-		Listener: l,
-		config:   config,
-		certPool: certPool,
-	}, nil
-}
-
-// Dial connects to a remote endpoint listening on the specified address
-func Dial(addr string, config *ConnectionConfig, certPool CertPool) (*Conn, error) {
-	rawConn, err := new(net.Dialer).Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-
-	config.isClient = true
-	if config.MaxFrameLength == 0 {
-		config.MaxFrameLength = defaultMaxFrameSize
-	}
-
-	return newConn(*config, rawConn, certPool), nil
-}
