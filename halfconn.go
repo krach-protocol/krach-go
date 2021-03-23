@@ -20,8 +20,8 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	}
 	origLen := len(inBuf)
 	packetBuf := bufPool.Get().(*buf)
+	packetBuf.index = 1 // reserve space for packet length
 	// TODO check max length
-	//paddedBuf := padPrefixPayload(buf)
 	packetBuf.resize(len(inBuf))
 	packetBuf.copyInto(inBuf)
 	packetBuf.pad()
@@ -30,14 +30,14 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	packetBuf.data = h.cs.Encrypt(packetBuf.data[:0], nil, packetBuf.data)
 	packetBuf.index = 0
 	length := packetBuf.size()
-	lengthBuf := make([]byte, 2)
-	endianess.PutUint16(lengthBuf, length)
-	_, err = h.conn.netConn.Write(lengthBuf)
+	lenBuf := make([]byte, 2)
+	endianess.PutUint16(lenBuf, length)
+	_, err = h.conn.netConn.Write(lenBuf)
 	if err != nil {
 		return 0, err
 	}
 	for n < int(length) {
-		n1, err := h.conn.netConn.Write(packetBuf.data[n:])
+		n1, err := h.conn.netConn.Write(packetBuf.data[n+packetBuf.index:])
 		if err != nil {
 			return 0, err
 		}
