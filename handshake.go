@@ -18,7 +18,7 @@ import (
 
 const (
 	// maxMsgLen is the maximum number of bytes transmittable in one message
-	maxMsgLen = 65535
+	maxMsgLen = 65535 - macSize - 15 /*max amount of padding*/ - 1 /*padding prefix */
 
 	dhLen = 32
 )

@@ -18,9 +18,12 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	if len(inBuf) == 0 {
 		return 0, nil
 	}
+	if len(inBuf) > maxMsgLen-macSize-15 /*max amount of padding*/ -1 /*padding prefix */ {
+		return 0, fmt.Errorf("%d bytes exceeds the maximum allowed message lnegth of %d bytes", len(inBuf), maxMsgLen)
+	}
 	origLen := len(inBuf)
 	packetBuf := bufPool.Get().(*buf)
-	packetBuf.index = 1 // reserve space for packet length
+	packetBuf.index = 1
 	// TODO check max length
 	packetBuf.resize(len(inBuf))
 	packetBuf.copyInto(inBuf)
