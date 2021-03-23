@@ -23,7 +23,7 @@ func (b *buf) size() uint16 {
 }
 
 func (b *buf) pad() {
-	origDataLen := len(b.data)
+	origDataLen := len(b.data) - b.index
 	bytesToPad := 16 - (origDataLen % 16) /*always pad to 16 bytes as recommended by the specification of ChaCha2020 */
 	if bytesToPad == 16 {
 		// We don't need padding if the payload is already divisible by 16
@@ -32,7 +32,7 @@ func (b *buf) pad() {
 	if bytesToPad > 0 {
 		b.data = append(b.data, make([]byte, bytesToPad, bytesToPad)...)
 	}
-	b.data[0] = uint8(bytesToPad)
+	b.data[b.index-1] = uint8(bytesToPad)
 }
 
 func (b *buf) reset() {
