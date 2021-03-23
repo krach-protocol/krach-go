@@ -22,8 +22,13 @@ func (b *buf) size() uint16 {
 	return uint16(len(b.data) - b.index)
 }
 
+func (b *buf) sizeUnpadded() uint16 {
+	paddedBytes := b.data[b.index-1]
+	return b.size() - uint16(paddedBytes)
+}
+
 func (b *buf) pad() {
-	origDataLen := len(b.data) - b.index
+	origDataLen := len(b.data)
 	bytesToPad := 16 - (origDataLen % 16) /*always pad to 16 bytes as recommended by the specification of ChaCha2020 */
 	if bytesToPad == 16 {
 		// We don't need padding if the payload is already divisible by 16
@@ -39,11 +44,6 @@ func (b *buf) reset() {
 	b.index = 1
 	b.data = b.data[0:1]
 	b.data[0] = 0
-}
-
-func (b *buf) unpaddedPayload() []byte {
-	padBytes := b.data[0]
-	return b.data[1 : len(b.data)-int(padBytes)]
 }
 
 func (b *buf) resize(size int) {
@@ -62,8 +62,29 @@ func (b *buf) copyInto(inBuf []byte) {
 	}
 }
 
+func (b *buf) copyOutUnpadded(outBuf []byte) {
+	padBytes := b.data[b.index-1]
+	copy(outBuf, b.data[b.index:len(b.data)-int(padBytes)])
+}
+
 func (b *buf) ensureCapacity(capacity int) {
-	if cap(b.data) < capacity {
-		b.data = append(b.data[:cap(b.data)], append(make([]byte, capacity), b.data[cap(b.data):]...)...)
+	if cap(b.data) >= capacity {
+		return
+	}
+	m := cap(b.data)
+	if m == 0 {
+		m = 1024
+	}
+	for m < capacity {
+		m *= 2
+	}
+	data := make([]byte, len(b.data), m)
+	copy(data, b.data)
+	b.data = data
+}
+
+func (b *buf) ensureLength(size int) {
+	if len(b.data)-b.index < size {
+		b.resize(size)
 	}
 }

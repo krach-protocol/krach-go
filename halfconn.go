@@ -48,31 +48,41 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	return origLen, nil
 }
 
-func (h *halfConn) read(buf []byte) (n int, err error) {
-	lengthBuf := make([]byte, 2)
-	n, err = h.conn.netConn.Read(lengthBuf)
+func (h *halfConn) read(inBuf []byte) (n int, err error) {
+	packetBuf := bufPool.Get().(*buf)
+	packetBuf.index = 0
+	packetBuf.ensureLength(2)
+	n, err = h.conn.netConn.Read(packetBuf.data[packetBuf.index : packetBuf.index+2])
 	if err != nil {
 		return 0, err
 	}
-	expectedLength := endianess.Uint16(lengthBuf)
+	expectedLength := endianess.Uint16(packetBuf.data[packetBuf.index : packetBuf.index+2])
 	minPayloadLength := int(expectedLength) - macSize - 15 /*max padding bytes */ - 1 /*pad length field*/
-	if len(buf) < minPayloadLength {
-		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", minPayloadLength, len(buf))
+	if len(inBuf) < minPayloadLength {
+		return 0, fmt.Errorf("Buffer too small. Can't read %d expected bytes into a buffer of %d bytes", minPayloadLength, len(inBuf))
 	}
-	readBuf := make([]byte, expectedLength)
+	packetBuf.reset()
+	packetBuf.index = 0
+	packetBuf.ensureLength(int(expectedLength))
 	n = 0
 	for n < int(expectedLength) {
-		n1, err := h.conn.netConn.Read(readBuf[n:])
+		n1, err := h.conn.netConn.Read(packetBuf.data[n:])
 		if err != nil {
 			return 0, err
 		}
 		n = n + n1
 	}
-	decryptedBuf, err := h.cs.Decrypt(nil, nil, readBuf)
+
+	_, err = h.cs.Decrypt(packetBuf.data[:0], nil, packetBuf.data)
 	if err != nil {
 		return 0, err
 	}
-	padBytes := decryptedBuf[0]
-	copy(buf, decryptedBuf[1:len(decryptedBuf)-int(padBytes)])
-	return len(decryptedBuf) - 1 - int(padBytes), nil
+	packetBuf.data = packetBuf.data[0 : len(packetBuf.data)-macSize] /* Remove MAC data */
+	packetBuf.index = 1
+	packetBuf.copyOutUnpadded(inBuf)
+
+	payloadLength := packetBuf.sizeUnpadded()
+	packetBuf.reset()
+	bufPool.Put(packetBuf)
+	return int(payloadLength), nil
 }
