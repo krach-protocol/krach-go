@@ -32,9 +32,9 @@ func TestNonMultiplexedConnection(t *testing.T) {
 	serverConf.IsClient = false
 	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
 
-	clientConn, _ := NewConn(clientConf, clientNetConn)
+	clientConn, _ := newConn(clientConf, clientNetConn)
 
-	serverConn, _ := NewConn(serverConf, serverNetConn)
+	serverConn, _ := newConn(serverConf, serverNetConn)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -85,9 +85,9 @@ func BenchmarkNonMultiplexedConnection(b *testing.B) {
 	serverConf.IsClient = false
 	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
 
-	clientConn, _ := NewConn(clientConf, clientNetConn)
+	clientConn, _ := newConn(clientConf, clientNetConn)
 
-	serverConn, _ := NewConn(serverConf, serverNetConn)
+	serverConn, _ := newConn(serverConf, serverNetConn)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)

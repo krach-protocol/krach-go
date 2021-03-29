@@ -75,7 +75,7 @@ type Conn struct {
 	config *ConnectionConfig
 }
 
-func NewConn(conf *ConnectionConfig, netConn net.Conn) (*Conn, error) {
+func newConn(conf *ConnectionConfig, netConn net.Conn) (*Conn, error) {
 	//maxFramePayloadLength := int(conf.MaxFrameLength) - 2 /*packet length*/ - frameHeaderSize - macSize
 	// if n := maxFramePayloadLength % 16; n != 0 {
 	// Can't exceed maximum FrameLength (might be Layer2 limitation), so we substract here, to achieve a length
