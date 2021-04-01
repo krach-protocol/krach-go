@@ -292,7 +292,7 @@ func generateTlsCerts(b *testing.B) (certBytes []byte, keyBytes []byte) {
 }
 
 func BenchmarkTLSHandshake(b *testing.B) {
-	// b.Skip()
+	b.Skip()
 	certPem, keyPem := generateTlsCerts(b)
 	cert, err := tls.X509KeyPair(certPem, keyPem)
 	require.NoError(b, err)
@@ -356,7 +356,7 @@ func BenchmarkTLSHandshake(b *testing.B) {
 }
 
 func BenchmarkTLS(b *testing.B) {
-	// b.Skip()
+	b.Skip()
 	certPem, keyPem := generateTlsCerts(b)
 	cert, err := tls.X509KeyPair(certPem, keyPem)
 	require.NoError(b, err)
