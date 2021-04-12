@@ -11,6 +11,8 @@ GO_TEST 				?= $(GO_BUILD_ENV_TEST_VARS) go test -timeout 30s -v -covermode=atom
 
 clean:
 	rm -f *.coverprofile
+	rm -f test-helper
+	rm -f test-helper_linux_amd64
 
 test-helper:
 	$(GO_BUILD_ENV_VARS) go build -o test-helper ./cmd/krach-test

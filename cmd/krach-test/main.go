@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/connctd/krach/v2"
+	"github.com/connctd/krach"
 	smolcert "github.com/smolcert/smolcert"
 	"github.com/spf13/cobra"
 )
@@ -70,7 +70,7 @@ var (
 						go func(ctx context.Context, conn net.Conn) {
 							defer conn.Close()
 							log.Printf("Opened socket for %s, running handshake", conn.RemoteAddr().String())
-							serverConn, err := krach.NewConn(serverConf, conn)
+							serverConn, err := krach.Server(conn, serverConf)
 							if err != nil {
 								log.Printf("Failed to create krach server handler: %s", err)
 								return
@@ -79,19 +79,14 @@ var (
 								log.Printf("Handshake failed for %s: %s", conn.RemoteAddr().String(), err)
 								return
 							}
-							log.Printf("Handshake succeeded for client %s, creating stream with ID 1", conn.RemoteAddr().String())
-							stream, err := serverConn.NewStream(uint8(1))
-							if err != nil {
-								log.Printf("Failed to create stream 1 with client %s", conn.RemoteAddr().String())
-								return
-							}
+							log.Printf("Handshake succeeded for client %s", conn.RemoteAddr().String())
 							readBuf := make([]byte, 4096)
 							for {
 								select {
 								case <-ctx.Done():
 									return
 								default:
-									n, err := stream.Read(readBuf)
+									n, err := serverConn.Read(readBuf)
 									if err != nil {
 										log.Printf("Failed to read data from stream: %s", err)
 										return
@@ -194,7 +189,7 @@ func writeFile(buf []byte, filePath string) {
 		er(err)
 	}
 	if n != len(buf) {
-		er(fmt.Errorf("Expected to write %d bytes to file %s, but only %d got written", len(buf), filePath, n))
+		er(fmt.Errorf("expected to write %d bytes to file %s, but only %d got written", len(buf), filePath, n))
 	}
 }
 
