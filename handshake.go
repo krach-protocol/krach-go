@@ -51,7 +51,7 @@ type cipherState struct {
 func (s *cipherState) Cipher(k [32]byte) cipher.AEAD {
 	c, err := chacha20poly1305.New(k[:])
 	if err != nil {
-		panic(fmt.Errorf("Failed to create ChaChaPoly1305 cipher: %w", err))
+		panic(fmt.Errorf("failed to create ChaChaPoly1305 cipher: %w", err))
 	}
 	return c
 }
@@ -80,7 +80,7 @@ func (s *cipherState) GenerateKeypair(random io.Reader) (dhKey, error) {
 		random = rand.Reader
 	}
 	if _, err := io.ReadFull(random, privkey[:]); err != nil {
-		return dhKey{}, fmt.Errorf("Failed too generate enough random bytes for private key: %w", err)
+		return dhKey{}, fmt.Errorf("failed too generate enough random bytes for private key: %w", err)
 	}
 	curve25519.ScalarBaseMult(&pubkey, &privkey)
 	return dhKey{Private: privkey, Public: pubkey}, nil
@@ -106,7 +106,7 @@ func (s *cipherState) Rekey() {
 func (s *cipherState) Hash() hash.Hash {
 	h, err := blake2s.New256(nil)
 	if err != nil {
-		panic(fmt.Errorf("Failed too create Blake2S hash: %w", err))
+		panic(fmt.Errorf("failed too create Blake2S hash: %w", err))
 	}
 	return h
 }
@@ -236,7 +236,7 @@ type readOperation func(s *handshakeState, msg readableHandshakeMessage) error
 func writeMessageE(s *handshakeState, msg writeableHandshakeMessage) error {
 	e, err := s.symmState.GenerateKeypair(s.rng)
 	if err != nil {
-		return fmt.Errorf("Failed to generate ephemeral key pair: %w", err)
+		return fmt.Errorf("failed to generate ephemeral key pair: %w", err)
 	}
 	s.ephemeralDHKey = e
 	msg.WriteEPublic(s.ephemeralDHKey.Public)
@@ -250,11 +250,11 @@ func writeMessageE(s *handshakeState, msg writeableHandshakeMessage) error {
 
 func writeMessageS(s *handshakeState, msg writeableHandshakeMessage) error {
 	if len(s.localIdentity.PublicKey()) == 0 {
-		return errors.New("Invalid state, Public Key of local identity is nil")
+		return errors.New("invalid state, Public Key of local identity is nil")
 	}
 	idBytes, err := s.localIdentity.Bytes()
 	if err != nil {
-		return fmt.Errorf("Unable to marshal local identity: %w", err)
+		return fmt.Errorf("unable to marshal local identity: %w", err)
 	}
 	var encryptedSPublic []byte
 	encryptedSPublic = s.symmState.EncryptAndHash(encryptedSPublic, padPrefixPayload(idBytes))
@@ -311,7 +311,7 @@ func readMessageE(s *handshakeState, msg readableHandshakeMessage) (err error) {
 
 	s.remoteEphemeralPubKey, err = msg.ReadEPublic()
 	if err != nil {
-		return fmt.Errorf("Failed to read remote ephemeral public key from packet: %w", err)
+		return fmt.Errorf("failed to read remote ephemeral public key from packet: %w", err)
 	}
 	s.symmState.MixHash(s.remoteEphemeralPubKey[:])
 	// Ignore PSK for now
@@ -337,21 +337,21 @@ func readMessageS(s *handshakeState, msg readableHandshakeMessage) error {
 
 	idBytes, err := msg.ReadEncryptedIdentity()
 	if err != nil {
-		return fmt.Errorf("Failed to read encrypted identity bytes from message: %w", err)
+		return fmt.Errorf("failed to read encrypted identity bytes from message: %w", err)
 	}
 	var decryptedRawIdentity []byte
 	decryptedRawIdentity, err = s.symmState.DecryptAndHash(decryptedRawIdentity, idBytes)
 	if err != nil {
-		return fmt.Errorf("Failed to decrypt remote identity: %w", err)
+		return fmt.Errorf("failed to decrypt remote identity: %w", err)
 	}
 	smCrt, err := smolcert.ParseBuf(unpadPayload(decryptedRawIdentity))
 	if err != nil {
-		return fmt.Errorf("Failed to parse remote identity: %w", err)
+		return fmt.Errorf("failed to parse remote identity: %w", err)
 	}
 	identity := &Identity{*smCrt}
 
 	if err := s.eventuallyVerifyIdentity(identity); err != nil {
-		return fmt.Errorf("Failed to verify remote identity: %w", err)
+		return fmt.Errorf("failed to verify remote identity: %w", err)
 	}
 	s.remoteIdentity = identity
 
@@ -482,10 +482,10 @@ func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []b
 
 func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessage) (payload []byte, err error) {
 	if s.shouldWrite {
-		return nil, errors.New("Unexpected call to ReadMessage should be WriteMessage")
+		return nil, errors.New("unexpected call to ReadMessage should be WriteMessage")
 	}
 	if s.readMsgIdx >= len(s.readOperations) {
-		return nil, errors.New("Invalid state, no more read operations")
+		return nil, errors.New("invalid state, no more read operations")
 	}
 	s.symmState.Checkpoint()
 
@@ -497,14 +497,14 @@ func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessag
 
 	msgBytes, err := message.ReadPayload()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read payload from received handshake packet: %w", err)
+		return nil, fmt.Errorf("failed to read payload from received handshake packet: %w", err)
 	}
 
 	out, err = s.symmState.DecryptAndHash(out, msgBytes)
 	out = unpadPayload(out)
 	if err != nil {
 		s.symmState.Rollback()
-		return nil, fmt.Errorf("Failed to decrypt payload: %w", err)
+		return nil, fmt.Errorf("failed to decrypt payload: %w", err)
 	}
 
 	s.shouldWrite = true
