@@ -15,6 +15,21 @@ func (p packetType) Byte() byte {
 	return byte(p)
 }
 
+func (p packetType) String() string {
+	switch p {
+	case packetTypeHandshakeInit:
+		return "HandshakeInit"
+	case packetTypeHandshakeInitResponse:
+		return "HandshakeResponse"
+	case packetTypeHandshakeFin:
+		return "HandshakeFin"
+	case packetTypeTransport:
+		return "Transport"
+	default:
+		return "Invalid"
+	}
+}
+
 // Known packet types are defined here
 const (
 	packetTypeInvalid               packetType = 0x00
