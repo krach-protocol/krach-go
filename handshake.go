@@ -306,7 +306,7 @@ func writeMessageS_DHSE(s *handshakeState, msg writeableHandshakeMessage) error 
 
 func readMessageE(s *handshakeState, msg readableHandshakeMessage) (err error) {
 	if msg.Length() < dhLen {
-		return errors.New("Message is too short")
+		return errors.New("message is too short (less than 32 bytes)")
 	}
 
 	s.remoteEphemeralPubKey, err = msg.ReadEPublic()
@@ -328,11 +328,11 @@ func readMessageS(s *handshakeState, msg readableHandshakeMessage) error {
 	}
 
 	if msg.Length() < expected {
-		return errors.New("Message is too short")
+		return errors.New("message is too short")
 	}
 
 	if s.remoteIdentity != nil {
-		return errors.New("Invalid state, we already received the remote identity")
+		return errors.New("invalid state, we already received the remote identity")
 	}
 
 	idBytes, err := msg.ReadEncryptedIdentity()
@@ -365,7 +365,7 @@ func readMessageDHEE(s *handshakeState, msg readableHandshakeMessage) error {
 
 func readMessageDHES(s *handshakeState, msg readableHandshakeMessage) error {
 	if s.remoteIdentity == nil {
-		return errors.New("Invalid state! We haven't received a remote identity yet")
+		return errors.New("invalid state! We haven't received a remote identity yet")
 	}
 	if s.initiator {
 		s.symmState.MixKey(s.symmState.DH(s.ephemeralDHKey.Private, s.remoteIdentity.PublicKey()))
@@ -377,7 +377,7 @@ func readMessageDHES(s *handshakeState, msg readableHandshakeMessage) error {
 
 func readMessageDHSE(s *handshakeState, msg readableHandshakeMessage) error {
 	if s.remoteIdentity == nil {
-		return errors.New("Invalid state! We haven't received a remote identity yet")
+		return errors.New("invalid state! We haven't received a remote identity yet")
 	}
 	if s.initiator {
 		s.symmState.MixKey(s.symmState.DH(s.localIdentity.PrivateKey(), s.remoteEphemeralPubKey))
@@ -458,10 +458,10 @@ func (s *handshakeState) eventuallyVerifyIdentity(id *Identity) error {
 
 func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []byte) (err error) {
 	if !s.shouldWrite {
-		return errors.New("Unexpected call to WriteMessage should be ReadMessage")
+		return errors.New("unexpected call to WriteMessage should be ReadMessage")
 	}
 	if s.writeMsgIdx >= len(s.writeOperations) {
-		return errors.New("Invalid state, no more write operations")
+		return errors.New("invalid state, no more write operations")
 	}
 	op := s.writeOperations[s.writeMsgIdx]
 	s.writeMsgIdx++
@@ -519,7 +519,7 @@ func (s *handshakeState) CipherStates() (*cipherState, *cipherState, error) {
 	if s.cs1 != nil && s.cs2 != nil {
 		return s.cs1, s.cs2, nil
 	}
-	return nil, nil, errors.New("Invalid state! No CipherStates derived yet")
+	return nil, nil, errors.New("invalid state! No CipherStates derived yet")
 }
 
 func (s *handshakeState) ChannelBinding() []byte {
