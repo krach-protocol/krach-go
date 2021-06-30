@@ -87,11 +87,11 @@ func (s *cipherState) GenerateKeypair(random io.Reader) (dhKey, error) {
 }
 
 func (s *cipherState) DH(privkey, pubkey [32]byte) []byte {
-	var dst, in, base [32]byte
-	copy(in[:], privkey[:])
-	copy(base[:], pubkey[:])
-	curve25519.ScalarMult(&dst, &in, &base)
-	return dst[:]
+	dst, err := curve25519.X25519(privkey[:], pubkey[:])
+	if err != nil {
+		panic("Failed to run scalar multiplication during DH")
+	}
+	return dst
 }
 
 func (s *cipherState) Rekey() {
