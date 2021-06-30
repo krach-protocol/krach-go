@@ -106,7 +106,7 @@ func (h *handshakeInitPacket) Serialize() []byte {
 
 func (h *handshakeInitPacket) Deserialize(buf []byte) error {
 	if len(buf) != 32 {
-		return errors.New("Invalid length of handshake init packet. Expected 32 bytes")
+		return fmt.Errorf("invalid length of handshake init packet. Expected 32 bytes, but got %d bytes", len(buf))
 	}
 	var ek [32]byte
 	copy(ek[:], buf)
@@ -169,7 +169,7 @@ func (h *handshakeResponsePacket) Serialize() []byte {
 
 func (h *handshakeResponsePacket) Deserialize(buf []byte) (err error) {
 	if len(buf) < 84 /*Minimal possible length*/ {
-		return fmt.Errorf("Invalid packet length for HandshakeResponse packet. Got only %d bytes", len(buf))
+		return fmt.Errorf("invalid packet length for HandshakeResponse packet. Got only %d bytes", len(buf))
 	}
 	h.receivedLength = len(buf)
 	copy(h.ephemeralKey[:], buf[:32])
@@ -177,10 +177,10 @@ func (h *handshakeResponsePacket) Deserialize(buf []byte) (err error) {
 	var nextOffset int
 	h.smolCertEncrypted, nextOffset, err = readLengthPrefixed(buf[offset:])
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read encrypted smol cert from handshake response packet: %w", err)
 	}
 	offset = offset + nextOffset
-	h.payloadEncrypted, nextOffset, err = readLengthPrefixed(buf[offset:])
+	h.payloadEncrypted, _, err = readLengthPrefixed(buf[offset:])
 	return
 }
 
@@ -237,13 +237,13 @@ func (h *handshakeFinPacket) Serialize() []byte {
 
 func (h *handshakeFinPacket) Deserialize(buf []byte) (err error) {
 	if len(buf) < 52 {
-		return fmt.Errorf("Received buffer is too small to contain a Handshake Fin packet. Received only %d bytes", len(buf))
+		return fmt.Errorf("received buffer is too small to contain a Handshake Fin packet. Received only %d bytes", len(buf))
 	}
 	h.receivedLength = len(buf)
 	offset := 0
 	h.smolCertEncrypted, offset, err = readLengthPrefixed(buf)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read encrypted smol cert from HandshakeFin packet: %w", err)
 	}
 	h.payloadEncrypted, _, err = readLengthPrefixed(buf[offset:])
 	return err
@@ -253,11 +253,11 @@ func (h *handshakeFinPacket) Deserialize(buf []byte) (err error) {
 // the offset after the payload, which was just read and if necessary an error
 func readLengthPrefixed(buf []byte) ([]byte, int, error) {
 	if len(buf) < 2 {
-		return nil, 0, errors.New("Buffer too small to decode length prefixed value")
+		return nil, 0, errors.New("buffer too small to decode length prefixed value, need at least 2 bytes")
 	}
 	length := endianess.Uint16(buf[:2])
 	if len(buf) < int(length+2) {
-		return nil, 0, errors.New("Got invalid length. Prefixed length is smaller than remaining buffer")
+		return nil, 0, fmt.Errorf("got invalid length. Prefixed length (%d bytes) is smaller than remaining buffer (%d bytes)", length, len(buf))
 	}
 	return buf[2 : length+2], int(length + 2), nil
 }

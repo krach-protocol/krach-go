@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	errGoAway = errors.New("Go away, someone else is writing")
+	errGoAway = errors.New("go away, someone else is writing")
 )
 
 // MaxPayloadSize is the maximal size for the payload of transport packets
@@ -151,11 +151,11 @@ func (c *Conn) readPacket(pkt readableHandshakeMessage) error {
 	if pkt.PacketType() == packetTypeHandshakeInit {
 		payloadOffset = 4
 		if KrachVersion != buf[0] {
-			return errors.New("Unexpected protocol version")
+			return errors.New("unexpected protocol version")
 		}
 		_, err = c.netConn.Read(buf[1:4])
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to read from net socket: %w", err)
 		}
 		receivedPktType = packetType(buf[1])
 		pktLength = int(endianess.Uint16(buf[2:4]))
@@ -170,14 +170,14 @@ func (c *Conn) readPacket(pkt readableHandshakeMessage) error {
 	}
 
 	if receivedPktType != pkt.PacketType() {
-		return fmt.Errorf("Received unexpected packet type during handshake. Expected %d, but got %d", pkt.PacketType(), receivedPktType)
+		return fmt.Errorf("received unexpected packet type during handshake. Expected %s, but got %d", pkt.PacketType(), receivedPktType)
 	}
 	n, err := c.netConn.Read(buf[payloadOffset:])
 	if err != nil {
 		return err
 	}
 	if n != pktLength {
-		return fmt.Errorf("Failed to read complete packet. Expected to read %d bytes, but only got %d bytes", pktLength, n)
+		return fmt.Errorf("failed to read complete packet. Expected to read %d bytes, but only got %d bytes", pktLength, n)
 	}
 	return pkt.Deserialize(buf[payloadOffset : n+payloadOffset])
 }
@@ -221,7 +221,7 @@ func (c *Conn) runClientHandshake() error {
 	remoteID := state.PeerIdentity()
 
 	if err := c.validateRemoteID(remoteID, payload); err != nil {
-		return fmt.Errorf("Validation of server id failed: %w", err)
+		return fmt.Errorf("validation of server id failed: %w", err)
 	}
 
 	handshakeFinMsg := &handshakeFinPacket{}
@@ -239,7 +239,7 @@ func (c *Conn) runClientHandshake() error {
 	}
 
 	if csOut == nil || csIn == nil {
-		return errors.New("Failed to create cipher states")
+		return errors.New("failed to create cipher states")
 	}
 
 	c.hcIn = newHalfConn(c, csIn)
