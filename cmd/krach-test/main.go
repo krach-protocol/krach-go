@@ -93,6 +93,10 @@ var (
 									}
 									log.Printf("Received %d bytes from %s", n, conn.RemoteAddr().String())
 									printBuf(readBuf[:n])
+									_, err = serverConn.Write(readBuf[:n])
+									if err != nil {
+										log.Printf("Failed to echo back received data: %s", err)
+									}
 								}
 							}
 						}(clientCtx, conn)
