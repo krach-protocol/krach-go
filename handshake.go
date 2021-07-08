@@ -112,7 +112,7 @@ func (s *cipherState) Hash() hash.Hash {
 }
 
 func (s *cipherState) Name() []byte {
-	return []byte("ed25519" + "_" + "ChaCha20Poly1305" + "_" + "Blake2S")
+	return []byte("25519" + "_" + "ChaChaPoly" + "_" + "BLAKE2s")
 }
 
 type symmetricState struct {
