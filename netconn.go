@@ -16,7 +16,15 @@ func (c *Conn) Read(buf []byte) (n int, err error) {
 }
 
 func (c *Conn) Close() error {
-	return c.netConn.Close()
+	if c == nil {
+		// This might be nil if connection is already closed or failed to start correctly
+		return nil
+	}
+	if c.netConn != nil {
+		// This might be nil if connection is already closed or failed to start correctly
+		return c.netConn.Close()
+	}
+	return nil
 }
 
 func (c *Conn) LocalAddr() net.Addr {
