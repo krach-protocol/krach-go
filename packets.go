@@ -245,8 +245,17 @@ func (h *handshakeFinPacket) Deserialize(buf []byte) (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to read encrypted smol cert from HandshakeFin packet: %w", err)
 	}
-	h.payloadEncrypted, _, err = readLengthPrefixed(buf[offset:])
-	return err
+	if offset < len(buf) {
+		h.payloadEncrypted, offset, err = readLengthPrefixed(buf[offset:])
+		if err != nil {
+			return fmt.Errorf("failed to read additional payload of HandshakeFin packet: %w", err)
+		}
+	}
+	// offset should be at the packets end by now. If not we received extranous bytes, which hints at an invalid/incomplete packet
+	if offset != len(buf) {
+		return fmt.Errorf("extra bytes (%d bytes) at the end of HandshakeFin packet detected", len(buf)-offset)
+	}
+	return nil
 }
 
 // readLengthPrefixed reads a length prefixed payload from the given buffer. It return the read payload,

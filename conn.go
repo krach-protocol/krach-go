@@ -135,7 +135,8 @@ func (c *Conn) Handshake() error {
 
 // buf must contain a correctly formatted packet including the length prefix etc
 func (c *Conn) writePacket(pkt writeableHandshakeMessage) (int, error) {
-	return c.netConn.Write(pkt.Serialize())
+	buf := pkt.Serialize()
+	return c.netConn.Write(buf)
 }
 
 func (c *Conn) readPacket(pkt readableHandshakeMessage) error {
