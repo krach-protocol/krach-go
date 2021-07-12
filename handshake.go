@@ -440,7 +440,7 @@ func newState(conf *handshakeConfig) *handshakeState {
 	s.symmState = &symmetricState{}
 	s.symmState.InitializeSymmetric([]byte("Krach_" + "XX" + "_" + string(s.symmState.Name())))
 	// TODO investigate if we need to call MixHash for prologue, and if we need a prologue
-	s.symmState.MixHash([]byte{})
+	// s.symmState.MixHash([]byte{})
 
 	if s.initiator {
 		s.writeOperations = []writeOperation{writeMessageE, writeMessageS_DHSE}
@@ -469,10 +469,13 @@ func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []b
 		return err
 	}
 	s.shouldWrite = false
-	paddedPayload := padPrefixPayload(payload)
-	var encryptedPayload []byte
-	encryptedPayload = s.symmState.EncryptAndHash(encryptedPayload, paddedPayload)
-	out.WriteEncryptedPayload(encryptedPayload)
+	if len(payload) > 0 {
+
+		paddedPayload := padPrefixPayload(payload)
+		var encryptedPayload []byte
+		encryptedPayload = s.symmState.EncryptAndHash(encryptedPayload, paddedPayload)
+		out.WriteEncryptedPayload(encryptedPayload)
+	}
 
 	if s.writeMsgIdx == len(s.writeOperations) {
 		s.cs1, s.cs2 = s.symmState.Split()
@@ -500,11 +503,13 @@ func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessag
 		return nil, fmt.Errorf("failed to read payload from received handshake packet: %w", err)
 	}
 
-	out, err = s.symmState.DecryptAndHash(out, msgBytes)
-	out = unpadPayload(out)
-	if err != nil {
-		s.symmState.Rollback()
-		return nil, fmt.Errorf("failed to decrypt payload: %w", err)
+	if len(msgBytes) > 0 {
+		out, err = s.symmState.DecryptAndHash(out, msgBytes)
+		if err != nil {
+			s.symmState.Rollback()
+			return nil, fmt.Errorf("failed to decrypt payload: %w", err)
+		}
+		out = unpadPayload(out)
 	}
 
 	s.shouldWrite = true
