@@ -100,3 +100,21 @@ func TestHandshakeResponseFormat(t *testing.T) {
 	assert.EqualValues(t, fakeSmolCert, hndRsp.smolCertEncrypted)
 	assert.EqualValues(t, fakePayload, hndRsp.payloadEncrypted)
 }
+
+func TestHandshakeFinFormat(t *testing.T) {
+	smolCertOnly := []byte{0x08, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	pkt := &handshakeFinPacket{}
+	err := pkt.Deserialize(smolCertOnly)
+	require.NoError(t, err)
+	assert.Len(t, pkt.smolCertEncrypted, 8)
+	assert.EqualValues(t, smolCertOnly[2:], pkt.smolCertEncrypted)
+	assert.Len(t, pkt.payloadEncrypted, 0)
+
+	smolCertEmptyPayload := []byte{0x08, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00}
+	pkt = &handshakeFinPacket{}
+	err = pkt.Deserialize(smolCertEmptyPayload)
+	require.NoError(t, err)
+	assert.Len(t, pkt.smolCertEncrypted, 8)
+	assert.EqualValues(t, smolCertOnly[2:10], pkt.smolCertEncrypted)
+	assert.Len(t, pkt.payloadEncrypted, 0)
+}
