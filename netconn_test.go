@@ -85,6 +85,25 @@ func TestLocalhostConnection(t *testing.T) {
 	wg.Wait()
 	defer server.Close()
 	defer client.Close()
+
+	payload := []byte("ping")
+
+	wg = &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := client.Write(payload)
+		if err != nil {
+			errChan <- err
+		}
+	}()
+
+	buf := make([]byte, 128)
+	n, err := server.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, len(payload), n)
+	assert.EqualValues(t, payload, buf[:n])
+	wg.Wait()
 }
 
 func BenchmarkHandshake(b *testing.B) {
