@@ -58,7 +58,7 @@ func (s *cipherState) Cipher(k [32]byte) cipher.AEAD {
 
 func (s *cipherState) nonce(in uint64) []byte {
 	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], in)
+	binary.LittleEndian.PutUint64(nonce[0:], in)
 	return nonce[:]
 }
 
