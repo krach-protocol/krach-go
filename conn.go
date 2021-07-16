@@ -234,7 +234,7 @@ func (c *Conn) runClientHandshake() error {
 	if _, err := c.writePacket(handshakeFinMsg); err != nil {
 		return err
 	}
-	csIn, csOut, err := state.CipherStates()
+	csOut, csIn, err := state.CipherStates()
 	if err != nil {
 		return err
 	}
@@ -298,7 +298,7 @@ func (c *Conn) runServerHandshake() error {
 		return err
 	}
 
-	csOut, csIn, err := hs.CipherStates()
+	csIn, csOut, err := hs.CipherStates()
 	if err != nil {
 		return err
 	}
