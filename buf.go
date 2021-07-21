@@ -63,6 +63,10 @@ func (b *buf) copyInto(inBuf []byte) {
 }
 
 func (b *buf) copyOutUnpadded(outBuf []byte) {
+	if len(b.data) <= b.index-1 {
+		// No valid padded data in buffer
+		return
+	}
 	padBytes := b.data[b.index-1]
 	copy(outBuf, b.data[b.index:len(b.data)-int(padBytes)])
 }
