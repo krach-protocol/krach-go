@@ -104,6 +104,11 @@ func TestLocalhostConnection(t *testing.T) {
 	assert.Equal(t, len(payload), n)
 	assert.EqualValues(t, payload, buf[:n])
 	wg.Wait()
+
+	clientPeerIdentity := client.PeerIdentity()
+	serverPeerIdentity := server.PeerIdentity()
+	assert.EqualValues(t, serverCert, clientPeerIdentity)
+	assert.EqualValues(t, clientCert, serverPeerIdentity)
 }
 
 func BenchmarkHandshake(b *testing.B) {

@@ -73,6 +73,8 @@ type Conn struct {
 	hcOut *halfConn
 
 	config *ConnectionConfig
+
+	peerIdentity *smolcert.Certificate
 }
 
 func newConn(conf *ConnectionConfig, netConn net.Conn) (*Conn, error) {
@@ -90,6 +92,13 @@ func newConn(conf *ConnectionConfig, netConn net.Conn) (*Conn, error) {
 	}
 
 	return c, nil
+}
+
+// PeerIdentity returns the received peer identity after the handshake has run. The peer identity
+// can also be verified via a callback (which is the preffered way), but it might useful to access
+// identifying information about the peer at runtime
+func (c *Conn) PeerIdentity() *smolcert.Certificate {
+	return c.peerIdentity
 }
 
 func (c *Conn) Handshake() error {
@@ -225,6 +234,8 @@ func (c *Conn) runClientHandshake() error {
 		return fmt.Errorf("validation of server id failed: %w", err)
 	}
 
+	c.peerIdentity = &remoteID.Certificate
+
 	handshakeFinMsg := &handshakeFinPacket{}
 
 	if err = state.WriteMessage(handshakeFinMsg, c.config.Payload); err != nil {
@@ -297,6 +308,8 @@ func (c *Conn) runServerHandshake() error {
 	if err := c.validateRemoteID(remoteID, payload); err != nil {
 		return err
 	}
+
+	c.peerIdentity = &remoteID.Certificate
 
 	csIn, csOut, err := hs.CipherStates()
 	if err != nil {
