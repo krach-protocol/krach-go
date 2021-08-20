@@ -4,12 +4,12 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"math"
 
-	"github.com/pkg/errors"
 	"github.com/smolcert/smolcert"
 	"golang.org/x/crypto/blake2s"
 	"golang.org/x/crypto/chacha20poly1305"
