@@ -1,3 +1,4 @@
+//go:build !multiplexing
 // +build !multiplexing
 
 package krach
@@ -76,4 +77,44 @@ func Server(netConn net.Conn, config *ConnectionConfig) (*Conn, error) {
 		return nil, err
 	}
 	return conn, nil
+}
+
+type listener struct {
+	netListener net.Listener
+	config      *ConnectionConfig
+}
+
+// Listen returns a listener which listens on the specified port for new
+// krach connections
+func Listen(address string, config *ConnectionConfig) (net.Listener, error) {
+	nl, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	return &listener{
+		netListener: nl,
+		config:      config,
+	}, nil
+}
+
+// Accept accepts new client connections on the specified address and
+// return a krach connections once the handshake is completed
+func (l *listener) Accept() (net.Conn, error) {
+	netConn, err := l.netListener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return Server(netConn, l.config)
+}
+
+// Close closes the listener, but does not handle already
+// established connections. They encounter errors when trying
+// to use the underlying network connection
+func (l *listener) Close() error {
+	return l.netListener.Close()
+}
+
+// Addr returns the listen address of this listener
+func (l *listener) Addr() net.Addr {
+	return l.netListener.Addr()
 }
