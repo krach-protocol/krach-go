@@ -1,3 +1,4 @@
+//go:build multiplexing
 // +build multiplexing
 
 package krach
@@ -56,9 +57,6 @@ func (s *Stream) Write(buf []byte) (n int, err error) {
 
 		payloadBuf, padLen := padPayload(payloadBuf)
 		payloadBuf[0] = padLen
-		pktLength := len(payloadBuf) + macSize
-		pktLengthBuf := make([]byte, 16) /* Pad also the ad with zero bytes, so we don't need to transmit padding information for ad */
-		endianess.PutUint16(pktLengthBuf, uint16(pktLength))
 
 		atomic.StoreInt32(&s.needsWriteFlag, 1)
 		for !atomic.CompareAndSwapInt32(&s.writeLock, 1, 0) {
@@ -66,21 +64,13 @@ func (s *Stream) Write(buf []byte) (n int, err error) {
 		}
 		atomic.StoreInt32(&s.needsWriteFlag, 0)
 
-		encBuf := s.conn.csOut.Encrypt([]byte{}, pktLengthBuf, payloadBuf)
-		n, err = s.conn.netConn.Write(pktLengthBuf[:2])
-		if err != nil {
-			return 0, err
-		}
-		n, err = s.conn.netConn.Write(encBuf)
+		n, err = s.conn.Write(payloadBuf)
 		if err != nil {
 			return 0, err
 		}
 
 		m = m - n1
-		fmt.Printf("Stream %d has finished write\n", s.id)
 		// TODO mark the stream and/or connection as broken after analyzing the error
-
-		atomic.StoreInt32(&s.conn.currStreamWriteID, 0)
 	}
 
 	// Wait to be allowed to write
