@@ -1,3 +1,4 @@
+//go:build !multiplexing
 // +build !multiplexing
 
 package krach
@@ -33,11 +34,11 @@ func TestLocalhostConnection(t *testing.T) {
 
 	clientConf := DefaultConnectionConfig()
 	clientConf.IsClient = true
-	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+	clientConf.LocalIdentity = MustNewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
 	serverConf.IsClient = false
-	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+	serverConf.LocalIdentity = MustNewPrivateIdentity(serverCert, serverKey)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
@@ -121,11 +122,11 @@ func BenchmarkHandshake(b *testing.B) {
 
 	clientConf := DefaultConnectionConfig()
 	clientConf.IsClient = true
-	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+	clientConf.LocalIdentity = MustNewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
 	serverConf.IsClient = false
-	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+	serverConf.LocalIdentity = MustNewPrivateIdentity(serverCert, serverKey)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
@@ -185,11 +186,11 @@ func BenchmarkNonMultiplexedConnectionLocalhost(b *testing.B) {
 
 	clientConf := DefaultConnectionConfig()
 	clientConf.IsClient = true
-	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+	clientConf.LocalIdentity = MustNewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
 	serverConf.IsClient = false
-	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+	serverConf.LocalIdentity = MustNewPrivateIdentity(serverCert, serverKey)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
