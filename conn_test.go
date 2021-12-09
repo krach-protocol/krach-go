@@ -1,3 +1,4 @@
+//go:build !multiplexing
 // +build !multiplexing
 
 package krach
@@ -26,11 +27,11 @@ func TestNonMultiplexedConnection(t *testing.T) {
 	clientNetConn, serverNetConn := net.Pipe()
 	clientConf := DefaultConnectionConfig()
 	clientConf.IsClient = true
-	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+	clientConf.LocalIdentity = MustNewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
 	serverConf.IsClient = false
-	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+	serverConf.LocalIdentity = MustNewPrivateIdentity(serverCert, serverKey)
 
 	clientConn, _ := newConn(clientConf, clientNetConn)
 
@@ -79,11 +80,11 @@ func BenchmarkNonMultiplexedConnection(b *testing.B) {
 	clientNetConn, serverNetConn := net.Pipe()
 	clientConf := DefaultConnectionConfig()
 	clientConf.IsClient = true
-	clientConf.LocalIdentity = NewPrivateIdentity(clientCert, clientKey)
+	clientConf.LocalIdentity = MustNewPrivateIdentity(clientCert, clientKey)
 
 	serverConf := DefaultConnectionConfig()
 	serverConf.IsClient = false
-	serverConf.LocalIdentity = NewPrivateIdentity(serverCert, serverKey)
+	serverConf.LocalIdentity = MustNewPrivateIdentity(serverCert, serverKey)
 
 	clientConn, _ := newConn(clientConf, clientNetConn)
 

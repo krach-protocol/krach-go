@@ -1,6 +1,8 @@
 package krach
 
 import (
+	"errors"
+
 	"github.com/iost-official/ed25519/extra25519"
 	"github.com/smolcert/smolcert"
 	"golang.org/x/crypto/ed25519"
@@ -39,13 +41,26 @@ type PrivateIdentity struct {
 
 // NewPrivateIdentity creates a new PrivateSmolIdentity which contains the smolcert with the private key.
 // This might be needed for cryptographic operations like eDH or eDSA etc.
-func NewPrivateIdentity(cert *smolcert.Certificate, privKey ed25519.PrivateKey) *PrivateIdentity {
+func NewPrivateIdentity(cert *smolcert.Certificate, privKey ed25519.PrivateKey) (*PrivateIdentity, error) {
+	msg := []byte("His name was Gaal Dornick and he was just a country boy who had never seen Trantor before. ")
+	sig := ed25519.Sign(privKey, msg)
+	if !ed25519.Verify(cert.PubKey, msg, sig) {
+		return nil, errors.New("private key and public key of certificate do not belong to each other")
+	}
 	return &PrivateIdentity{
 		Identity: Identity{
 			Certificate: *cert,
 		},
 		privKey: privKey,
+	}, nil
+}
+
+func MustNewPrivateIdentity(cert *smolcert.Certificate, privKey ed25519.PrivateKey) *PrivateIdentity {
+	id, err := NewPrivateIdentity(cert, privKey)
+	if err != nil {
+		panic(err)
 	}
+	return id
 }
 
 // PrivateKey returns a curve25519 representation of the private key
