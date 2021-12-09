@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/iost-official/ed25519 v0.0.0-20180407040355-dc8c80d0266f
+	github.com/sirupsen/logrus v1.8.1
 	github.com/smolcert/smolcert v0.2.1
 	github.com/spf13/cobra v1.1.1
 	github.com/stretchr/testify v1.4.0

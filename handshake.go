@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/sirupsen/logrus"
 	"github.com/smolcert/smolcert"
 	"golang.org/x/crypto/blake2s"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -228,6 +229,7 @@ type handshakeConfig struct {
 	Random        io.Reader
 	Initiator     bool
 	LocalIdentity *PrivateIdentity
+	debug         bool
 }
 
 type writeOperation func(s *handshakeState, msg writeableHandshakeMessage) error
@@ -422,6 +424,8 @@ type handshakeState struct {
 	shouldWrite           bool
 	cs1                   *cipherState
 	cs2                   *cipherState
+
+	debug bool
 }
 
 func newState(conf *handshakeConfig) *handshakeState {
@@ -432,6 +436,7 @@ func newState(conf *handshakeConfig) *handshakeState {
 		shouldWrite:   conf.Initiator,
 		readMsgIdx:    0,
 		writeMsgIdx:   0,
+		debug:         conf.debug,
 	}
 
 	if s.rng == nil {
@@ -463,6 +468,16 @@ func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []b
 	if s.writeMsgIdx >= len(s.writeOperations) {
 		return errors.New("invalid state, no more write operations")
 	}
+	if s.debug {
+		logrus.WithFields(logrus.Fields{
+			"h":  s.symmState.h,
+			"k":  s.symmState.k,
+			"n":  s.symmState.n,
+			"cn": s.symmState.cipherState.n,
+			"ck": s.symmState.cipherState.k,
+		}).Info("Write message begin")
+	}
+
 	op := s.writeOperations[s.writeMsgIdx]
 	s.writeMsgIdx++
 	if err := op(s, out); err != nil {
@@ -480,6 +495,15 @@ func (s *handshakeState) WriteMessage(out writeableHandshakeMessage, payload []b
 	if s.writeMsgIdx == len(s.writeOperations) {
 		s.cs1, s.cs2 = s.symmState.Split()
 	}
+	if s.debug {
+		logrus.WithFields(logrus.Fields{
+			"h":  s.symmState.h,
+			"k":  s.symmState.k,
+			"n":  s.symmState.n,
+			"cn": s.symmState.cipherState.n,
+			"ck": s.symmState.cipherState.k,
+		}).Info("Write message end")
+	}
 	return nil
 }
 
@@ -489,6 +513,15 @@ func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessag
 	}
 	if s.readMsgIdx >= len(s.readOperations) {
 		return nil, errors.New("invalid state, no more read operations")
+	}
+	if s.debug {
+		logrus.WithFields(logrus.Fields{
+			"h":  s.symmState.h,
+			"k":  s.symmState.k,
+			"n":  s.symmState.n,
+			"cn": s.symmState.cipherState.n,
+			"ck": s.symmState.cipherState.k,
+		}).Info("Read message begin")
 	}
 	s.symmState.Checkpoint()
 
@@ -516,6 +549,15 @@ func (s *handshakeState) ReadMessage(out []byte, message readableHandshakeMessag
 
 	if s.readMsgIdx == len(s.readOperations) {
 		s.cs1, s.cs2 = s.symmState.Split()
+	}
+	if s.debug {
+		logrus.WithFields(logrus.Fields{
+			"h":  s.symmState.h,
+			"k":  s.symmState.k,
+			"n":  s.symmState.n,
+			"cn": s.symmState.cipherState.n,
+			"ck": s.symmState.cipherState.k,
+		}).Info("Read message end")
 	}
 	return out, nil
 }

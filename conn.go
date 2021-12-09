@@ -206,6 +206,7 @@ func (c *Conn) runClientHandshake() error {
 	state = newState(&handshakeConfig{
 		Initiator:     true,
 		LocalIdentity: c.config.LocalIdentity,
+		debug:         c.config.Debug,
 	})
 
 	hsInit := &handshakeInitPacket{}
@@ -267,6 +268,7 @@ func (c *Conn) runServerHandshake() error {
 	hs := newState(&handshakeConfig{
 		Initiator:     false,
 		LocalIdentity: c.config.LocalIdentity,
+		debug:         c.config.Debug,
 	})
 
 	hsInit := &handshakeInitPacket{}
