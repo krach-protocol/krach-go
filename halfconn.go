@@ -48,8 +48,9 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	endianess.PutUint16(lenBuf, length)
 	if h.debug {
 		logrus.WithFields(logrus.Fields{
-			"length": length,
-			"lenBuf": lenBuf,
+			"length":    length,
+			"lenBuf":    lenBuf,
+			"component": "halfconn.write",
 		}).Debug("Sending length prefix")
 	}
 	_, err = h.conn.netConn.Write(lenBuf)
@@ -66,6 +67,7 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 				"packetData":        packetBuf.data[n+packetBuf.index:],
 				"packetLength":      len(packetBuf.data[n+packetBuf.index:]),
 				"totalPacketLength": len(packetBuf.data[n+packetBuf.index:]) + len(lenBuf),
+				"component":         "halfconn.write",
 			}).Debug("Writing encrypted packet")
 		}
 		n = n + n1
@@ -90,6 +92,7 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 		logrus.WithFields(logrus.Fields{
 			"expectedLength": expectedLength,
 			"lengthPrefix":   packetBuf.data[packetBuf.index : packetBuf.index+2],
+			"component":      "halfconn.read",
 		}).Debug("Received length prefix")
 	}
 	minPayloadLength := int(expectedLength) - macSize - 15 /*max padding bytes */ - 1 /*pad length field*/
@@ -111,6 +114,7 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 		logrus.WithFields(logrus.Fields{
 			"packetData": packetBuf.data[:n],
 			"dataLength": len(packetBuf.data[:n]),
+			"component":  "halfconn.read",
 		}).Debug("Received encrypted data")
 	}
 	_, err = h.cs.Decrypt(packetBuf.data[:0], nil, packetBuf.data[:n])
@@ -126,6 +130,7 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 		logrus.WithFields(logrus.Fields{
 			"payloadLength": payloadLength,
 			"payload":       inBuf[:payloadLength],
+			"component":     "halfconn.read",
 		}).Debug("Got unencrypted payload")
 	}
 	packetBuf.reset()
