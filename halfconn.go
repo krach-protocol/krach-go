@@ -125,7 +125,7 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 	if h.debug {
 		logrus.WithFields(logrus.Fields{
 			"payloadLength": payloadLength,
-			"payload":       inBuf,
+			"payload":       inBuf[:payloadLength],
 		}).Debug("Got unencrypted payload")
 	}
 	packetBuf.reset()
