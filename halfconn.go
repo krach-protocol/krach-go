@@ -3,19 +3,23 @@ package krach
 import (
 	"fmt"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 type halfConn struct {
-	cs   *cipherState
-	conn *Conn
-	lock *sync.Mutex
+	cs    *cipherState
+	conn  *Conn
+	lock  *sync.Mutex
+	debug bool
 }
 
 func newHalfConn(conn *Conn, cs *cipherState) *halfConn {
 	return &halfConn{
-		conn: conn,
-		cs:   cs,
-		lock: &sync.Mutex{},
+		conn:  conn,
+		cs:    cs,
+		lock:  &sync.Mutex{},
+		debug: conn.config.Debug,
 	}
 }
 
@@ -52,6 +56,14 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 			return 0, err
 		}
 		n = n + n1
+		if h.debug {
+			logrus.WithFields(logrus.Fields{
+				"lengthPrefix":      lenBuf,
+				"packetData":        packetBuf.data[n+packetBuf.index:],
+				"packetLength":      len(packetBuf.data[n+packetBuf.index:]),
+				"totalPacketLength": len(packetBuf.data[n+packetBuf.index:]) + len(lenBuf),
+			}).Debug("Writing encrypted packet")
+		}
 	}
 	packetBuf.reset()
 	bufPool.Put(packetBuf)
