@@ -46,6 +46,12 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	length := packetBuf.size()
 	lenBuf := make([]byte, 2)
 	endianess.PutUint16(lenBuf, length)
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"length": length,
+			"lenBuf": lenBuf,
+		}).Debug("Sending length prefix")
+	}
 	_, err = h.conn.netConn.Write(lenBuf)
 	if err != nil {
 		return 0, err
@@ -55,15 +61,14 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 		if err != nil {
 			return 0, err
 		}
-		n = n + n1
 		if h.debug {
 			logrus.WithFields(logrus.Fields{
-				"lengthPrefix":      lenBuf,
 				"packetData":        packetBuf.data[n+packetBuf.index:],
 				"packetLength":      len(packetBuf.data[n+packetBuf.index:]),
 				"totalPacketLength": len(packetBuf.data[n+packetBuf.index:]) + len(lenBuf),
 			}).Debug("Writing encrypted packet")
 		}
+		n = n + n1
 	}
 	packetBuf.reset()
 	bufPool.Put(packetBuf)
@@ -81,6 +86,12 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 		return 0, err
 	}
 	expectedLength := endianess.Uint16(packetBuf.data[packetBuf.index : packetBuf.index+2])
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"expectedLength": expectedLength,
+			"lengthPrefix":   packetBuf.data[packetBuf.index : packetBuf.index+2],
+		}).Debug("Received length prefix")
+	}
 	minPayloadLength := int(expectedLength) - macSize - 15 /*max padding bytes */ - 1 /*pad length field*/
 	if len(inBuf) < minPayloadLength {
 		return 0, fmt.Errorf("buffer too small. Can't read %d expected bytes into a buffer of %d bytes", minPayloadLength, len(inBuf))
@@ -96,6 +107,12 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 		}
 		n = n + n1
 	}
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"packetData": packetBuf.data[:n],
+			"dataLength": len(packetBuf.data[:n]),
+		}).Debug("Received encrypted data")
+	}
 	_, err = h.cs.Decrypt(packetBuf.data[:0], nil, packetBuf.data[:n])
 	if err != nil {
 		return 0, err
@@ -105,6 +122,12 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 	packetBuf.copyOutUnpadded(inBuf)
 
 	payloadLength := packetBuf.sizeUnpadded()
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"payloadLength": payloadLength,
+			"payload":       inBuf,
+		}).Debug("Got unencrypted payload")
+	}
 	packetBuf.reset()
 	bufPool.Put(packetBuf)
 	return int(payloadLength), nil
