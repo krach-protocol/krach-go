@@ -41,6 +41,12 @@ func (h *halfConn) write(inBuf []byte) (n int, err error) {
 	packetBuf.pad()
 	packetBuf.ensureCapacity(len(packetBuf.data) + macSize)
 
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"n": h.cs.n,
+			"k": h.cs.k,
+		}).Debug("Encrypting message")
+	}
 	packetBuf.data = h.cs.Encrypt(packetBuf.data[:0], nil, packetBuf.data)
 	packetBuf.index = 0
 	length := packetBuf.size()
@@ -116,6 +122,12 @@ func (h *halfConn) read(inBuf []byte) (n int, err error) {
 			"dataLength": len(packetBuf.data[:n]),
 			"component":  "halfconn.read",
 		}).Debug("Received encrypted data")
+	}
+	if h.debug {
+		logrus.WithFields(logrus.Fields{
+			"n": h.cs.n,
+			"k": h.cs.k,
+		}).Debug("Decrypting message")
 	}
 	_, err = h.cs.Decrypt(packetBuf.data[:0], nil, packetBuf.data[:n])
 	if err != nil {
