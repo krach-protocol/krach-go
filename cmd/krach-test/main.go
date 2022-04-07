@@ -38,7 +38,10 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, mainCancel := context.WithCancel(context.Background())
 			serverCert, serverKey := loadPair("server")
-			serverIdentity := krach.NewPrivateIdentity(serverCert, serverKey)
+			serverIdentity, err := krach.NewPrivateIdentity(serverCert, serverKey)
+			if err != nil {
+				er(err)
+			}
 
 			serverConf := krach.DefaultConnectionConfig()
 			serverConf.IsClient = false
